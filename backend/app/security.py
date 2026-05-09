@@ -1,13 +1,13 @@
-from datetime import UTC, datetime, timedelta
 import hashlib
 import hmac
 import secrets
+from functools import lru_cache
 from typing import Literal
 
+import httpx
+import jwt as pyjwt
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError, jwt
-from passlib.context import CryptContext
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -15,24 +15,44 @@ from app.config import settings
 from app.database import get_db
 from app.models import AccountStatus, Faculty, Student
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/google", auto_error=False)
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+bearer_scheme = HTTPBearer(auto_error=False)
 
 
 # ---------------------------------------------------------------------------
-# Password hashing (for admin/HOD web login)
+# Clerk JWKS — fetched once and cached
 # ---------------------------------------------------------------------------
 
-def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+@lru_cache(maxsize=1)
+def _get_jwks() -> dict:
+    """Fetch Clerk's public JWKS. Cached for the process lifetime."""
+    url = settings.clerk_jwks_url
+    if not url:
+        raise RuntimeError("Clerk JWKS URL could not be derived from publishable key.")
+    resp = httpx.get(url, timeout=10)
+    resp.raise_for_status()
+    return resp.json()
 
 
-def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+def _verify_clerk_token(token: str) -> dict:
+    """Verify a Clerk session token and return the payload."""
+    jwks = _get_jwks()
+    try:
+        # pyjwt will pick the right key from the JWKS automatically
+        payload = pyjwt.decode(
+            token,
+            pyjwt.PyJWKClient(settings.clerk_jwks_url).get_signing_key_from_jwt(token).key,
+            algorithms=["RS256"],
+            options={"verify_aud": False},  # Clerk tokens don't use aud by default
+        )
+        return payload
+    except pyjwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="token_expired")
+    except pyjwt.InvalidTokenError as exc:
+        raise HTTPException(status_code=401, detail=f"invalid_token: {exc}")
 
 
 # ---------------------------------------------------------------------------
-# Session code hashing (4-digit attendance code)
+# Session code hashing (4-digit attendance code — unchanged)
 # ---------------------------------------------------------------------------
 
 def hash_code(code: str) -> str:
@@ -51,39 +71,21 @@ def verify_code(code: str, code_hash: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# JWT
+# Domain validation
 # ---------------------------------------------------------------------------
-
-def create_access_token(subject: str, role: str, user_id: int) -> str:
-    expires = datetime.now(UTC) + timedelta(minutes=settings.access_token_minutes)
-    payload = {"sub": subject, "role": role, "uid": user_id, "exp": expires}
-    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
-
-
-# ---------------------------------------------------------------------------
-# Domain validation (single domain: bmsit.in)
-# ---------------------------------------------------------------------------
-
-def _domain(email: str) -> str:
-    return email.split("@", 1)[1].lower()
-
 
 def validate_allowed_domain(email: str) -> None:
-    domain = _domain(email)
+    domain = email.split("@", 1)[1].lower()
     if domain not in settings.domains:
         raise HTTPException(status_code=403, detail="email_domain_not_allowed")
 
 
 # ---------------------------------------------------------------------------
-# Role detection from DB (all @bmsit.in)
+# Role detection from DB
 # ---------------------------------------------------------------------------
 
 def find_user_by_email(db: Session, email: str):
-    """Look up user by email and return (role, user_obj).
-
-    Order: students table first, then faculty.
-    Faculty role is determined by is_admin / is_hod flags.
-    """
+    """Return (role, user) by looking up email in students then faculty."""
     student = db.scalar(select(Student).where(Student.email == email.lower()))
     if student:
         return "student", student
@@ -98,44 +100,53 @@ def find_user_by_email(db: Session, email: str):
 
 
 # ---------------------------------------------------------------------------
-# Current-user dependency
+# FastAPI dependency — verifies Clerk JWT, returns {role, user}
 # ---------------------------------------------------------------------------
 
-def get_current_user(token: str | None = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    if not token:
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
+):
+    if not credentials:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="not_authenticated")
-    try:
-        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
-        email = payload["sub"]
-        role = payload["role"]
-        uid = int(payload["uid"])
-    except (JWTError, KeyError, ValueError):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid_token") from None
 
-    if role == "student":
-        user = db.get(Student, uid)
-    elif role in {"faculty", "admin", "hod"}:
-        user = db.get(Faculty, uid)
-    else:
-        user = None
+    payload = _verify_clerk_token(credentials.credentials)
 
-    if not user or user.email != email or user.status != AccountStatus.active.value:
-        raise HTTPException(status_code=401, detail="inactive_or_missing_user")
+    # Clerk stores email in primary_email_address or email_addresses[0].email_address
+    # The session token typically exposes it under the "email" or nested claim.
+    # Standard Clerk JWT structure uses sub = user_id; email comes from custom claims or
+    # must be fetched. However with Clerk's "email" custom claim or via the /me endpoint.
+    # We use the email claim we configure in Clerk's session token customization.
+    email = payload.get("email")
+    if not email:
+        # Fallback: try extracting from email_addresses if present
+        email_addresses = payload.get("email_addresses", [])
+        if email_addresses:
+            email = email_addresses[0].get("email_address")
+    if not email:
+        raise HTTPException(status_code=401, detail="email_claim_missing_in_token")
+
+    email = email.strip().lower()
+    validate_allowed_domain(email)
+
+    role, user = find_user_by_email(db, email)
+    if not user:
+        raise HTTPException(status_code=403, detail="user_not_registered")
+    if user.status != AccountStatus.active.value:
+        raise HTTPException(status_code=403, detail="account_inactive")
+
     return {"role": role, "user": user}
 
 
 def require_role(*roles: Literal["student", "faculty", "admin", "hod"]):
-    """Dependency that checks the user has one of the allowed roles.
-
-    Admin can access everything. HOD can access hod + faculty endpoints.
-    """
+    """Role-based access control with inheritance: admin > hod > faculty."""
 
     def dependency(current=Depends(get_current_user)):
         effective_role = current["role"]
-        # Admin inherits all roles
+        # Admin inherits everything
         if effective_role == "admin":
             return current
-        # HOD inherits faculty role
+        # HOD inherits faculty access
         if effective_role == "hod" and "faculty" in roles:
             return current
         if effective_role not in roles:

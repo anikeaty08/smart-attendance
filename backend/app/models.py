@@ -88,7 +88,6 @@ class Faculty(Base):
     status: Mapped[str] = mapped_column(String(20), default=AccountStatus.active.value)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     is_hod: Mapped[bool] = mapped_column(Boolean, default=False)
-    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     department = relationship("Department")
 
