@@ -1,6 +1,5 @@
 from app.database import Base, SessionLocal, engine
 from app.models import Department, Faculty
-from app.security import hash_password
 
 
 def run() -> None:
@@ -21,25 +20,25 @@ def run() -> None:
             ("Civil Engineering", "CV"),
             ("Electrical and Electronics Engineering", "EEE"),
         ]
-        dept_objs = []
         for name, code in departments:
-            dept = Department(name=name, code=code)
-            db.add(dept)
-            dept_objs.append(dept)
+            db.add(Department(name=name, code=code))
         db.flush()
 
-        # Admin user (college-level, no department)
+        # Admin user — no password stored here.
+        # The admin logs in via Clerk (email + OTP or password set in Clerk dashboard).
+        # The backend just checks that admin@bmsit.in exists in the faculty table with is_admin=True.
         admin = Faculty(
             name="Admin",
             email="admin@bmsit.in",
             department_id=None,
             is_admin=True,
             is_hod=False,
-            password_hash=hash_password("admin123"),
         )
         db.add(admin)
         db.commit()
-        print(f"Seeded {len(departments)} departments and admin user (admin@bmsit.in / admin123)")
+        print(f"Seeded {len(departments)} departments.")
+        print("Seeded admin user: admin@bmsit.in")
+        print("NOTE: Set this user's password in the Clerk dashboard to enable web login.")
     finally:
         db.close()
 
