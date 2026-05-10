@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, Time, UniqueConstraint, func
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, Time, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -101,6 +101,7 @@ class Subject(Base):
     credits: Mapped[int] = mapped_column(Integer, default=3)
     semester: Mapped[int] = mapped_column(Integer)
     department_id: Mapped[int | None] = mapped_column(ForeignKey("departments.id"), nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
 
     department = relationship("Department")
 
@@ -117,6 +118,7 @@ class AcademicYear(Base):
     start_date: Mapped[datetime] = mapped_column(Date)
     end_date: Mapped[datetime] = mapped_column(Date)
     is_current: Mapped[bool] = mapped_column(Boolean, default=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -127,6 +129,7 @@ class Holiday(Base):
     date: Mapped[datetime] = mapped_column(Date, unique=True)
     name: Mapped[str] = mapped_column(String(120))
     academic_year_id: Mapped[int] = mapped_column(ForeignKey("academic_years.id"), index=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
 
     academic_year = relationship("AcademicYear")
 
@@ -137,6 +140,9 @@ class Holiday(Base):
 
 class SubjectOffering(Base):
     __tablename__ = "subject_offerings"
+    __table_args__ = (
+        Index("ix_offering_branch_sem_section_year_active", "branch_id", "semester", "section", "academic_year", "active"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id"), index=True)
@@ -156,7 +162,10 @@ class SubjectOffering(Base):
 
 class StudentEnrollment(Base):
     __tablename__ = "student_enrollments"
-    __table_args__ = (UniqueConstraint("student_id", "subject_offering_id", name="uq_student_offering"),)
+    __table_args__ = (
+        UniqueConstraint("student_id", "subject_offering_id", name="uq_student_offering"),
+        Index("ix_enrollment_student_offering", "student_id", "subject_offering_id"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     student_id: Mapped[int] = mapped_column(ForeignKey("students.id"), index=True)
@@ -220,6 +229,9 @@ class SubstituteAssignment(Base):
 
 class AttendanceSession(Base):
     __tablename__ = "attendance_sessions"
+    __table_args__ = (
+        Index("ix_session_offering_status_ends", "subject_offering_id", "status", "ends_at"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     subject_offering_id: Mapped[int] = mapped_column(ForeignKey("subject_offerings.id"), index=True)
@@ -240,7 +252,10 @@ class AttendanceSession(Base):
 
 class AttendanceRecord(Base):
     __tablename__ = "attendance_records"
-    __table_args__ = (UniqueConstraint("session_id", "student_id", name="uq_session_student"),)
+    __table_args__ = (
+        UniqueConstraint("session_id", "student_id", name="uq_session_student"),
+        Index("ix_record_session_student_status", "session_id", "student_id", "status"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     session_id: Mapped[int] = mapped_column(ForeignKey("attendance_sessions.id"), index=True)
@@ -260,6 +275,9 @@ class AttendanceRecord(Base):
 
 class AttendanceAttempt(Base):
     __tablename__ = "attendance_attempts"
+    __table_args__ = (
+        Index("ix_attempt_session_student_result_time", "session_id", "student_id", "result", "attempted_at"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     session_id: Mapped[int | None] = mapped_column(ForeignKey("attendance_sessions.id"), nullable=True, index=True)

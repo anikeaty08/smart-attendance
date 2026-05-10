@@ -4,10 +4,12 @@ import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.POST
+import retrofit2.http.PUT
+import retrofit2.http.Path
 
 interface SmartAttendanceApi {
-    @POST("/auth/google")
-    suspend fun login(@Body request: LoginRequest): TokenResponse
+    @GET("/me")
+    suspend fun me(@Header("Authorization") bearerToken: String): MeResponse
 
     @GET("/student/subjects")
     suspend fun studentSubjects(@Header("Authorization") bearerToken: String): List<SubjectOfferingDto>
@@ -21,6 +23,30 @@ interface SmartAttendanceApi {
         @Body request: MarkAttendanceRequest,
     ): MarkAttendanceResponse
 
+    @GET("/student/attendance/summary")
+    suspend fun attendanceSummary(@Header("Authorization") bearerToken: String): List<AttendanceSummaryDto>
+
+    @GET("/student/alerts")
+    suspend fun alerts(@Header("Authorization") bearerToken: String): List<AttendanceAlertDto>
+
+    @GET("/student/leave-requests")
+    suspend fun leaveRequests(@Header("Authorization") bearerToken: String): List<LeaveRequestDto>
+
+    @POST("/student/leave-requests")
+    suspend fun createLeaveRequest(
+        @Header("Authorization") bearerToken: String,
+        @Body request: CreateLeaveRequest,
+    ): LeaveRequestDto
+
+    @GET("/student/condonation-requests")
+    suspend fun condonationRequests(@Header("Authorization") bearerToken: String): List<CondonationRequestDto>
+
+    @POST("/student/condonation-requests")
+    suspend fun createCondonationRequest(
+        @Header("Authorization") bearerToken: String,
+        @Body request: CreateCondonationRequest,
+    ): CondonationRequestDto
+
     @GET("/faculty/offerings")
     suspend fun facultyOfferings(@Header("Authorization") bearerToken: String): List<SubjectOfferingDto>
 
@@ -29,10 +55,34 @@ interface SmartAttendanceApi {
         @Header("Authorization") bearerToken: String,
         @Body request: StartSessionRequest,
     ): StartSessionResponse
+
+    @POST("/faculty/sessions/{sessionId}/end")
+    suspend fun endSession(
+        @Header("Authorization") bearerToken: String,
+        @Path("sessionId") sessionId: Int,
+    ): Map<String, Any>
+
+    @GET("/faculty/sessions/{sessionId}/records")
+    suspend fun sessionRecords(
+        @Header("Authorization") bearerToken: String,
+        @Path("sessionId") sessionId: Int,
+    ): List<AttendanceRecordDto>
+
+    @GET("/faculty/attendance/report")
+    suspend fun facultyReport(@Header("Authorization") bearerToken: String): List<AttendanceSummaryDto>
 }
 
-data class LoginRequest(val email: String)
-data class TokenResponse(val access_token: String, val token_type: String, val role: String, val email: String, val name: String)
+data class MeResponse(
+    val id: Int,
+    val role: String,
+    val email: String,
+    val name: String,
+    val is_admin: Boolean,
+    val is_hod: Boolean,
+    val department_id: Int?,
+    val department_name: String?,
+)
+
 data class SubjectOfferingDto(
     val id: Int,
     val subject_code: String,
@@ -64,6 +114,49 @@ data class MarkAttendanceRequest(
     val device_id: String?,
 )
 data class MarkAttendanceResponse(val status: String, val distance_from_teacher: Double, val marked_at: String)
+data class AttendanceSummaryDto(
+    val subject_offering_id: Int,
+    val subject_code: String,
+    val subject_name: String,
+    val total_sessions: Int,
+    val present_sessions: Int,
+    val percentage: Double,
+)
+data class AttendanceAlertDto(val subject_code: String, val subject_name: String, val percentage: Double, val level: String)
+data class AttendanceRecordDto(
+    val id: Int,
+    val student_id: Int,
+    val student_name: String,
+    val usn: String,
+    val status: String,
+    val distance_from_teacher: Double,
+    val marked_at: String,
+)
+data class CreateLeaveRequest(
+    val leave_type: String,
+    val start_date: String,
+    val end_date: String,
+    val reason: String,
+    val document_path: String? = null,
+)
+data class LeaveRequestDto(
+    val id: Int,
+    val leave_type: String,
+    val start_date: String,
+    val end_date: String,
+    val reason: String,
+    val status: String,
+)
+data class CreateCondonationRequest(val subject_offering_id: Int, val reason: String)
+data class CondonationRequestDto(
+    val id: Int,
+    val subject_offering_id: Int,
+    val subject_code: String,
+    val subject_name: String,
+    val current_percentage: Double,
+    val reason: String,
+    val status: String,
+)
 data class StartSessionRequest(
     val subject_offering_id: Int,
     val session_type: String,
@@ -73,4 +166,3 @@ data class StartSessionRequest(
     val duration_minutes: Int,
 )
 data class StartSessionResponse(val id: Int, val code: String, val starts_at: String, val ends_at: String, val radius_meters: Int)
-

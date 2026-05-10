@@ -62,6 +62,7 @@ class AcademicYearOut(BaseModel):
     start_date: date
     end_date: date
     is_current: bool
+    active: bool = True
 
 
 class AcademicYearCreate(BaseModel):
@@ -76,6 +77,7 @@ class AcademicYearUpdate(BaseModel):
     start_date: date | None = None
     end_date: date | None = None
     is_current: bool | None = None
+    active: bool | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -87,6 +89,7 @@ class HolidayOut(BaseModel):
     date: date
     name: str
     academic_year_id: int
+    active: bool = True
 
 
 class HolidayCreate(BaseModel):
@@ -192,6 +195,7 @@ class SubjectOut(BaseModel):
     semester: int
     department_id: int | None = None
     department_code: str | None = None
+    active: bool = True
 
 
 class SubjectCreate(BaseModel):
@@ -208,6 +212,7 @@ class SubjectUpdate(BaseModel):
     credits: int | None = None
     semester: int | None = None
     department_id: int | None = None
+    active: bool | None = None
 
 
 class SubjectListResponse(BaseModel):
@@ -478,3 +483,56 @@ class ImportError(BaseModel):
 class ImportResponse(BaseModel):
     imported: int
     errors: list[ImportError]
+
+
+# ---------------------------------------------------------------------------
+# Leave and condonation
+# ---------------------------------------------------------------------------
+
+class LeaveRequestCreate(BaseModel):
+    leave_type: str = Field(pattern=r"^(medical|od|personal)$")
+    start_date: date
+    end_date: date
+    reason: str = Field(min_length=5)
+    document_path: str | None = None
+
+
+class LeaveRequestOut(BaseModel):
+    id: int
+    student_id: int
+    student_name: str
+    usn: str
+    leave_type: str
+    start_date: date
+    end_date: date
+    reason: str
+    document_path: str | None = None
+    status: str
+    reviewed_by_name: str | None = None
+    reviewed_at: datetime | None = None
+    created_at: datetime
+
+
+class CondonationRequestCreate(BaseModel):
+    subject_offering_id: int
+    reason: str = Field(min_length=5)
+
+
+class CondonationRequestOut(BaseModel):
+    id: int
+    student_id: int
+    student_name: str
+    usn: str
+    subject_offering_id: int
+    subject_code: str
+    subject_name: str
+    current_percentage: float
+    reason: str
+    status: str
+    reviewed_by_name: str | None = None
+    reviewed_at: datetime | None = None
+    created_at: datetime
+
+
+class ReviewRequest(BaseModel):
+    status: str = Field(pattern=r"^(approved|rejected)$")

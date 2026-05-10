@@ -4,8 +4,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    database_url: str = "postgresql+psycopg://postgres:aniket@localhost:5432/attendance"
-    allowed_domains: str = "bmsit.in"
+    database_url: str = "postgresql+psycopg://postgres:aniket@localhost/attendance"
+    allowed_domains: str = "bmsit.in,student.bmsit.in"
     clerk_secret_key: str = ""
     next_public_clerk_publishable_key: str = ""
     default_radius_meters: int = 10

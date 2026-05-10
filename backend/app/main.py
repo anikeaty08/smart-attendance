@@ -2,13 +2,10 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.database import Base, engine
 from app.routers import admin, auth, faculty, hod, student
-
-Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="Smart Attendance System",
@@ -46,6 +43,5 @@ def health():
 def admin_home():
     index = admin_dir / "index.html"
     if not index.exists():
-        from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="admin_web_not_found")
+        return RedirectResponse("http://127.0.0.1:3000")
     return FileResponse(index)

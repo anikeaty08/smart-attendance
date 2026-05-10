@@ -10,7 +10,10 @@ from app.models import (
     AttendanceCorrection,
     AttendanceRecord,
     AttendanceSession,
+    CondonationRequest,
     Faculty,
+    LeaveRequest,
+    RequestStatus,
     SessionStatus,
     Student,
     StudentEnrollment,
@@ -22,7 +25,10 @@ from app.models import (
 from app.schemas import (
     AttendanceCorrectionOut,
     AttendanceCorrectionRequest,
+    CondonationRequestOut,
     DefaulterOut,
+    LeaveRequestOut,
+    ReviewRequest,
     StudentListResponse,
     SubjectOfferingOut,
     SubstituteCreate,
@@ -32,13 +38,10 @@ from app.schemas import (
     TimetableSlotOut,
 )
 from app.security import require_role
+from app.time_utils import utcnow
 from app.utils import build_csv, parse_upload
 
 router = APIRouter(prefix="/hod", tags=["HOD"])
-
-
-def _utcnow() -> datetime:
-    return datetime.now(UTC)
 
 
 def _get_hod_dept(current: dict) -> int:
@@ -366,21 +369,28 @@ def update_substitute(
 # Attendance corrections (view all in dept — no 48h restriction for HOD)
 # ---------------------------------------------------------------------------
 
-@router.get("/corrections", response_model=list[AttendanceCorrectionOut])
+@router.get("/corrections")
 def hod_corrections(
+    page: int = 1,
+    page_size: int = 50,
     current=Depends(require_role("hod")),
     db: Session = Depends(get_db),
 ):
     dept_id = _get_hod_dept(current)
-    corrections = db.scalars(
+    from app.utils import paginate_query
+
+    query = (
         select(AttendanceCorrection)
         .join(AttendanceSession, AttendanceSession.id == AttendanceCorrection.session_id)
         .join(SubjectOffering, SubjectOffering.id == AttendanceSession.subject_offering_id)
         .where(SubjectOffering.branch_id == dept_id)
         .order_by(AttendanceCorrection.corrected_at.desc())
-    ).all()
-    return [
-        AttendanceCorrectionOut(
+    )
+    result = paginate_query(db, query, page, page_size)
+    return {
+        **result,
+        "items": [
+            AttendanceCorrectionOut(
             id=c.id,
             record_id=c.record_id,
             session_id=c.session_id,
@@ -393,8 +403,129 @@ def hod_corrections(
             corrected_by_name=c.corrector.name,
             corrected_at=c.corrected_at,
         )
-        for c in corrections
-    ]
+            for c in result["items"]
+        ],
+    }
+
+
+def _leave_out(req: LeaveRequest) -> LeaveRequestOut:
+    return LeaveRequestOut(
+        id=req.id,
+        student_id=req.student_id,
+        student_name=req.student.name,
+        usn=req.student.usn,
+        leave_type=req.leave_type,
+        start_date=req.start_date,
+        end_date=req.end_date,
+        reason=req.reason,
+        document_path=req.document_path,
+        status=req.status,
+        reviewed_by_name=req.reviewer.name if req.reviewer else None,
+        reviewed_at=req.reviewed_at,
+        created_at=req.created_at,
+    )
+
+
+def _condonation_out(req: CondonationRequest) -> CondonationRequestOut:
+    return CondonationRequestOut(
+        id=req.id,
+        student_id=req.student_id,
+        student_name=req.student.name,
+        usn=req.student.usn,
+        subject_offering_id=req.subject_offering_id,
+        subject_code=req.subject_offering.subject.subject_code,
+        subject_name=req.subject_offering.subject.subject_name,
+        current_percentage=req.current_percentage,
+        reason=req.reason,
+        status=req.status,
+        reviewed_by_name=req.reviewer.name if req.reviewer else None,
+        reviewed_at=req.reviewed_at,
+        created_at=req.created_at,
+    )
+
+
+@router.get("/leave-requests")
+def hod_leave_requests(
+    status: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+    current=Depends(require_role("hod")),
+    db: Session = Depends(get_db),
+):
+    dept_id = _get_hod_dept(current)
+    from app.utils import paginate_query
+
+    query = select(LeaveRequest).join(Student, Student.id == LeaveRequest.student_id).where(Student.branch_id == dept_id)
+    if status:
+        query = query.where(LeaveRequest.status == status)
+    result = paginate_query(db, query.order_by(LeaveRequest.created_at.desc()), page, page_size)
+    return {**result, "items": [_leave_out(r) for r in result["items"]]}
+
+
+@router.put("/leave-requests/{request_id}/review", response_model=LeaveRequestOut)
+def review_leave_request(
+    request_id: int,
+    payload: ReviewRequest,
+    current=Depends(require_role("hod")),
+    db: Session = Depends(get_db),
+):
+    faculty: Faculty = current["user"]
+    dept_id = _get_hod_dept(current)
+    req = db.get(LeaveRequest, request_id)
+    if not req:
+        raise HTTPException(404, "leave_request_not_found")
+    if req.student.branch_id != dept_id:
+        raise HTTPException(403, "request_not_in_department")
+    req.status = payload.status
+    req.reviewed_by = faculty.id
+    req.reviewed_at = utcnow()
+    db.commit()
+    db.refresh(req)
+    return _leave_out(req)
+
+
+@router.get("/condonation-requests")
+def hod_condonation_requests(
+    status: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+    current=Depends(require_role("hod")),
+    db: Session = Depends(get_db),
+):
+    dept_id = _get_hod_dept(current)
+    from app.utils import paginate_query
+
+    query = (
+        select(CondonationRequest)
+        .join(SubjectOffering, SubjectOffering.id == CondonationRequest.subject_offering_id)
+        .where(SubjectOffering.branch_id == dept_id)
+    )
+    if status:
+        query = query.where(CondonationRequest.status == status)
+    result = paginate_query(db, query.order_by(CondonationRequest.created_at.desc()), page, page_size)
+    return {**result, "items": [_condonation_out(r) for r in result["items"]]}
+
+
+@router.put("/condonation-requests/{request_id}/review", response_model=CondonationRequestOut)
+def review_condonation_request(
+    request_id: int,
+    payload: ReviewRequest,
+    current=Depends(require_role("hod")),
+    db: Session = Depends(get_db),
+):
+    faculty: Faculty = current["user"]
+    dept_id = _get_hod_dept(current)
+    req = db.get(CondonationRequest, request_id)
+    if not req:
+        raise HTTPException(404, "condonation_request_not_found")
+    if req.subject_offering.branch_id != dept_id:
+        raise HTTPException(403, "request_not_in_department")
+    req.status = payload.status
+    req.reviewed_by = faculty.id
+    req.reviewed_at = utcnow()
+    db.commit()
+    db.refresh(req)
+    return _condonation_out(req)
 
 
 # ---------------------------------------------------------------------------

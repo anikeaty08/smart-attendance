@@ -1,7 +1,5 @@
-from datetime import UTC, datetime
-
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import and_, func, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -10,6 +8,9 @@ from app.models import (
     AttendanceAttempt,
     AttendanceRecord,
     AttendanceSession,
+    CondonationRequest,
+    LeaveRequest,
+    RequestStatus,
     SessionStatus,
     Student,
     StudentEnrollment,
@@ -21,25 +22,20 @@ from app.schemas import (
     AttendanceAlert,
     AttendanceRecordOut,
     AttendanceSummaryOut,
+    CondonationRequestCreate,
+    CondonationRequestOut,
+    LeaveRequestCreate,
+    LeaveRequestOut,
     MarkAttendanceRequest,
     MarkAttendanceResponse,
     SubjectOfferingOut,
     TimetableSlotOut,
 )
 from app.security import require_role
+from app.time_utils import as_utc, db_utc, utcnow
 from app.utils import haversine_meters
 
 router = APIRouter(prefix="/student", tags=["Student"])
-
-
-def _utcnow() -> datetime:
-    return datetime.now(UTC)
-
-
-def _as_utc(value: datetime) -> datetime:
-    if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
-    return value.astimezone(UTC)
 
 
 def _offering_out(offering: SubjectOffering, enrollment_type: str | None = None) -> SubjectOfferingOut:
@@ -83,14 +79,14 @@ def student_subjects(current=Depends(require_role("student")), db: Session = Dep
 @router.get("/active-sessions", response_model=list[ActiveSessionOut])
 def student_active_sessions(current=Depends(require_role("student")), db: Session = Depends(get_db)):
     student: Student = current["user"]
-    now = _utcnow()
+    now = utcnow()
     rows = db.scalars(
         select(AttendanceSession)
         .join(StudentEnrollment, StudentEnrollment.subject_offering_id == AttendanceSession.subject_offering_id)
         .where(
             StudentEnrollment.student_id == student.id,
             AttendanceSession.status == SessionStatus.active.value,
-            AttendanceSession.ends_at > now.replace(tzinfo=None),
+            AttendanceSession.ends_at > db_utc(now),
         )
         .order_by(AttendanceSession.ends_at)
     ).all()
@@ -153,7 +149,7 @@ def mark_attendance(
 
     student: Student = current["user"]
     session = db.get(AttendanceSession, payload.session_id)
-    now = _utcnow()
+    now = utcnow()
 
     if not session:
         _log_attempt(db, request, None, student.id, False, False, None, payload.device_id, "rejected", "session_not_found")
@@ -170,7 +166,18 @@ def mark_attendance(
         _log_attempt(db, request, session.id, student.id, code_ok, location_ok, distance, payload.device_id, "rejected", reason)
         raise HTTPException(status_code=status_code, detail=reason)
 
-    if session.status != SessionStatus.active.value or _as_utc(session.ends_at) <= now:
+    failed_attempts = db.scalar(
+        select(func.count(AttendanceAttempt.id)).where(
+            AttendanceAttempt.session_id == session.id,
+            AttendanceAttempt.student_id == student.id,
+            AttendanceAttempt.result == "rejected",
+            AttendanceAttempt.reason.in_(["invalid_code", "outside_radius", "poor_gps_accuracy"]),
+        )
+    ) or 0
+    if failed_attempts >= 5:
+        reject("attendance_locked_for_session", 423)
+
+    if session.status != SessionStatus.active.value or as_utc(session.ends_at) <= now:
         reject("session_expired_or_inactive")
 
     enrolled = db.scalar(
@@ -282,6 +289,121 @@ def student_summary(current=Depends(require_role("student")), db: Session = Depe
             )
         )
     return summaries
+
+
+def _attendance_percentage(db: Session, student_id: int, offering_id: int) -> float:
+    session_ids = db.scalars(
+        select(AttendanceSession.id).where(
+            AttendanceSession.subject_offering_id == offering_id,
+            AttendanceSession.status.in_([SessionStatus.active.value, SessionStatus.ended.value, SessionStatus.expired.value]),
+        )
+    ).all()
+    if not session_ids:
+        return 0.0
+    present = db.scalar(
+        select(func.count(AttendanceRecord.id)).where(
+            AttendanceRecord.student_id == student_id,
+            AttendanceRecord.session_id.in_(session_ids),
+            AttendanceRecord.status == "present",
+        )
+    ) or 0
+    return round((present / len(session_ids)) * 100, 2)
+
+
+def _leave_out(req: LeaveRequest) -> LeaveRequestOut:
+    return LeaveRequestOut(
+        id=req.id,
+        student_id=req.student_id,
+        student_name=req.student.name,
+        usn=req.student.usn,
+        leave_type=req.leave_type,
+        start_date=req.start_date,
+        end_date=req.end_date,
+        reason=req.reason,
+        document_path=req.document_path,
+        status=req.status,
+        reviewed_by_name=req.reviewer.name if req.reviewer else None,
+        reviewed_at=req.reviewed_at,
+        created_at=req.created_at,
+    )
+
+
+def _condonation_out(req: CondonationRequest) -> CondonationRequestOut:
+    return CondonationRequestOut(
+        id=req.id,
+        student_id=req.student_id,
+        student_name=req.student.name,
+        usn=req.student.usn,
+        subject_offering_id=req.subject_offering_id,
+        subject_code=req.subject_offering.subject.subject_code,
+        subject_name=req.subject_offering.subject.subject_name,
+        current_percentage=req.current_percentage,
+        reason=req.reason,
+        status=req.status,
+        reviewed_by_name=req.reviewer.name if req.reviewer else None,
+        reviewed_at=req.reviewed_at,
+        created_at=req.created_at,
+    )
+
+
+@router.post("/leave-requests", response_model=LeaveRequestOut)
+def create_leave_request(payload: LeaveRequestCreate, current=Depends(require_role("student")), db: Session = Depends(get_db)):
+    student: Student = current["user"]
+    if payload.end_date < payload.start_date:
+        raise HTTPException(status_code=400, detail="end_date_before_start_date")
+    req = LeaveRequest(
+        student_id=student.id,
+        leave_type=payload.leave_type,
+        start_date=payload.start_date,
+        end_date=payload.end_date,
+        reason=payload.reason,
+        document_path=payload.document_path,
+        status=RequestStatus.pending.value,
+    )
+    db.add(req)
+    db.commit()
+    db.refresh(req)
+    return _leave_out(req)
+
+
+@router.get("/leave-requests", response_model=list[LeaveRequestOut])
+def list_leave_requests(current=Depends(require_role("student")), db: Session = Depends(get_db)):
+    student: Student = current["user"]
+    rows = db.scalars(select(LeaveRequest).where(LeaveRequest.student_id == student.id).order_by(LeaveRequest.created_at.desc())).all()
+    return [_leave_out(r) for r in rows]
+
+
+@router.post("/condonation-requests", response_model=CondonationRequestOut)
+def create_condonation_request(payload: CondonationRequestCreate, current=Depends(require_role("student")), db: Session = Depends(get_db)):
+    student: Student = current["user"]
+    enrollment = db.scalar(
+        select(StudentEnrollment).where(
+            StudentEnrollment.student_id == student.id,
+            StudentEnrollment.subject_offering_id == payload.subject_offering_id,
+        )
+    )
+    if not enrollment:
+        raise HTTPException(status_code=403, detail="not_enrolled")
+    req = CondonationRequest(
+        student_id=student.id,
+        subject_offering_id=payload.subject_offering_id,
+        current_percentage=_attendance_percentage(db, student.id, payload.subject_offering_id),
+        reason=payload.reason,
+        status=RequestStatus.pending.value,
+    )
+    db.add(req)
+    db.commit()
+    db.refresh(req)
+    return _condonation_out(req)
+
+
+@router.get("/condonation-requests", response_model=list[CondonationRequestOut])
+def list_condonation_requests(current=Depends(require_role("student")), db: Session = Depends(get_db)):
+    student: Student = current["user"]
+    rows = db.scalars(
+        select(CondonationRequest).where(CondonationRequest.student_id == student.id).order_by(CondonationRequest.created_at.desc())
+    ).all()
+    return [_condonation_out(r) for r in rows]
 
 
 # ---------------------------------------------------------------------------

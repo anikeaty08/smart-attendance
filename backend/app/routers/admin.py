@@ -9,15 +9,16 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import (
     AcademicYear, AttendanceCorrection, AttendanceRecord,
-    AttendanceSession, Department, Faculty, Holiday, SessionStatus,
+    AttendanceSession, CondonationRequest, Department, Faculty, Holiday, LeaveRequest, SessionStatus,
     Student, StudentEnrollment, Subject, SubjectOffering,
     SubstituteAssignment, TimetableSlot,
 )
 from app.schemas import (
     AcademicYearCreate, AcademicYearOut, AcademicYearUpdate,
+    CondonationRequestOut,
     CreateSubjectOfferingRequest, DepartmentCreate, DepartmentOut,
     DepartmentUpdate, FacultyOut, FacultyUpdate, HolidayCreate, HolidayOut,
-    ImportResponse, StudentOut, StudentUpdate, SubjectCreate,
+    ImportResponse, LeaveRequestOut, StudentOut, StudentUpdate, SubjectCreate,
     SubjectOfferingOut, SubjectOut, SubjectUpdate, UpdateSubjectOfferingRequest,
 )
 from app.security import require_role
@@ -116,9 +117,9 @@ def delete_holiday(h_id: int, current=Depends(require_role("admin")), db: Sessio
     h = db.get(Holiday, h_id)
     if not h:
         raise HTTPException(404, "holiday_not_found")
-    db.delete(h)
+    h.active = False
     db.commit()
-    return {"status": "deleted"}
+    return {"status": "deactivated"}
 
 
 # ---------------------------------------------------------------------------
@@ -291,6 +292,7 @@ def _subject_out(s: Subject) -> dict:
         "credits": s.credits, "semester": s.semester,
         "department_id": s.department_id,
         "department_code": s.department.code if s.department else None,
+        "active": s.active,
     }
 
 
@@ -341,13 +343,9 @@ def delete_subject(subject_id: int, current=Depends(require_role("admin")), db: 
     s = db.get(Subject, subject_id)
     if not s:
         raise HTTPException(404, "subject_not_found")
-    try:
-        db.delete(s)
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(400, "subject_has_offerings_cannot_delete")
-    return {"status": "deleted"}
+    s.active = False
+    db.commit()
+    return {"status": "deactivated"}
 
 
 # ---------------------------------------------------------------------------
@@ -869,20 +867,92 @@ def list_all_substitutes(
 
 
 @router.get("/corrections")
-def list_all_corrections(current=Depends(require_role("admin")), db: Session = Depends(get_db)):
-    corrections = db.scalars(
-        select(AttendanceCorrection).order_by(AttendanceCorrection.corrected_at.desc()).limit(500)
-    ).all()
-    return [
-        {
-            "id": c.id, "session_id": c.session_id,
-            "usn": c.student.usn, "student_name": c.student.name,
-            "old_status": c.old_status, "new_status": c.new_status,
-            "reason": c.reason, "corrected_by": c.corrector.name,
-            "corrected_at": c.corrected_at,
-        }
-        for c in corrections
-    ]
+def list_all_corrections(
+    page: int = 1,
+    page_size: int = 50,
+    current=Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    result = paginate_query(db, select(AttendanceCorrection).order_by(AttendanceCorrection.corrected_at.desc()), page, page_size)
+    return {
+        **result,
+        "items": [
+            {
+                "id": c.id, "session_id": c.session_id,
+                "usn": c.student.usn, "student_name": c.student.name,
+                "old_status": c.old_status, "new_status": c.new_status,
+                "reason": c.reason, "corrected_by": c.corrector.name,
+                "corrected_at": c.corrected_at,
+            }
+            for c in result["items"]
+        ],
+    }
+
+
+def _leave_out(req: LeaveRequest) -> LeaveRequestOut:
+    return LeaveRequestOut(
+        id=req.id,
+        student_id=req.student_id,
+        student_name=req.student.name,
+        usn=req.student.usn,
+        leave_type=req.leave_type,
+        start_date=req.start_date,
+        end_date=req.end_date,
+        reason=req.reason,
+        document_path=req.document_path,
+        status=req.status,
+        reviewed_by_name=req.reviewer.name if req.reviewer else None,
+        reviewed_at=req.reviewed_at,
+        created_at=req.created_at,
+    )
+
+
+def _condonation_out(req: CondonationRequest) -> CondonationRequestOut:
+    return CondonationRequestOut(
+        id=req.id,
+        student_id=req.student_id,
+        student_name=req.student.name,
+        usn=req.student.usn,
+        subject_offering_id=req.subject_offering_id,
+        subject_code=req.subject_offering.subject.subject_code,
+        subject_name=req.subject_offering.subject.subject_name,
+        current_percentage=req.current_percentage,
+        reason=req.reason,
+        status=req.status,
+        reviewed_by_name=req.reviewer.name if req.reviewer else None,
+        reviewed_at=req.reviewed_at,
+        created_at=req.created_at,
+    )
+
+
+@router.get("/leave-requests")
+def list_leave_requests(
+    status: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+    current=Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    query = select(LeaveRequest)
+    if status:
+        query = query.where(LeaveRequest.status == status)
+    result = paginate_query(db, query.order_by(LeaveRequest.created_at.desc()), page, page_size)
+    return {**result, "items": [_leave_out(r) for r in result["items"]]}
+
+
+@router.get("/condonation-requests")
+def list_condonation_requests(
+    status: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+    current=Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    query = select(CondonationRequest)
+    if status:
+        query = query.where(CondonationRequest.status == status)
+    result = paginate_query(db, query.order_by(CondonationRequest.created_at.desc()), page, page_size)
+    return {**result, "items": [_condonation_out(r) for r in result["items"]]}
 
 
 # ---------------------------------------------------------------------------

@@ -23,10 +23,10 @@ dependencies {
     implementation("androidx.compose.material3:material3:1.5.0")
     implementation("androidx.compose.ui:ui-tooling-preview:1.10.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.10.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("com.squareup.retrofit2:retrofit:3.0.0")
     implementation("com.squareup.retrofit2:converter-gson:3.0.0")
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("com.google.android.gms:play-services-auth:21.4.0")
     debugImplementation("androidx.compose.ui:ui-tooling:1.10.0")
 }
-

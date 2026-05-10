@@ -1,8 +1,8 @@
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -28,20 +28,11 @@ from app.schemas import (
     SubjectOfferingOut,
 )
 from app.security import require_role
+from app.time_utils import as_utc, db_utc, utcnow
 from app.utils import build_csv, generate_session_code
 from app.security import hash_code
 
 router = APIRouter(prefix="/faculty", tags=["Faculty"])
-
-
-def _utcnow() -> datetime:
-    return datetime.now(UTC)
-
-
-def _as_utc(value: datetime) -> datetime:
-    if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
-    return value.astimezone(UTC)
 
 
 def _offering_out(offering: SubjectOffering) -> SubjectOfferingOut:
@@ -93,7 +84,7 @@ def start_session(
 
     # Faculty must own the offering OR have a substitute assignment for today
     from app.models import SubstituteAssignment
-    today = _utcnow().date()
+    today = utcnow().date()
     is_substitute = db.scalar(
         select(SubstituteAssignment).where(
             SubstituteAssignment.subject_offering_id == payload.subject_offering_id,
@@ -107,7 +98,7 @@ def start_session(
     radius = min(max(payload.radius_meters, settings.default_radius_meters), settings.max_radius_meters)
     duration = max(1, min(payload.duration_minutes, 30))
     code = generate_session_code()
-    now = _utcnow()
+    now = utcnow()
     session = AttendanceSession(
         subject_offering_id=offering.id,
         faculty_id=faculty.id,
@@ -159,8 +150,8 @@ def end_session(session_id: int, current=Depends(require_role("faculty", "hod"))
     if not session or session.faculty_id != faculty.id:
         raise HTTPException(status_code=404, detail="session_not_found")
     session.status = SessionStatus.ended.value
-    now = _utcnow().replace(tzinfo=None)
-    session.ends_at = min(_as_utc(session.ends_at).replace(tzinfo=None), now)
+    now = db_utc(utcnow())
+    session.ends_at = min(db_utc(session.ends_at), now)
     db.commit()
     return {"status": "ended", "session_id": session.id}
 
@@ -210,7 +201,7 @@ def correct_attendance(
     # 48-hour window check (HOD/Admin bypass via role — done in hod/admin routers)
     if current["role"] == "faculty":
         window = timedelta(hours=settings.correction_window_hours)
-        if _utcnow() - _as_utc(session.starts_at) > window:
+        if utcnow() - as_utc(session.starts_at) > window:
             raise HTTPException(status_code=403, detail="correction_window_expired")
 
     student = db.get(Student, student_id)
@@ -295,18 +286,26 @@ def faculty_report(current=Depends(require_role("faculty", "hod")), db: Session 
         ).all()
         total = len(sessions)
         enrolled_count = db.scalar(
-            select(StudentEnrollment).where(
-                StudentEnrollment.subject_offering_id == offering.id
-            ).with_only_columns(__import__("sqlalchemy").func.count())
+            select(func.count(StudentEnrollment.id)).where(StudentEnrollment.subject_offering_id == offering.id)
         ) or 0
+        present_count = 0
+        if sessions:
+            present_count = db.scalar(
+                select(func.count(AttendanceRecord.id)).where(
+                    AttendanceRecord.session_id.in_(sessions),
+                    AttendanceRecord.status == "present",
+                )
+            ) or 0
+        possible_attendance = total * enrolled_count
+        percentage = round((present_count / possible_attendance) * 100, 2) if possible_attendance else 0.0
         result.append(
             AttendanceSummaryOut(
                 subject_offering_id=offering.id,
                 subject_code=offering.subject.subject_code,
                 subject_name=offering.subject.subject_name,
                 total_sessions=total,
-                present_sessions=enrolled_count,
-                percentage=0.0,
+                present_sessions=present_count,
+                percentage=percentage,
             )
         )
     return result
