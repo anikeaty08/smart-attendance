@@ -1,14 +1,13 @@
 package `in`.bmsit.smartattendance.network
 
+import `in`.bmsit.smartattendance.config.AppConfig
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 
 object ApiClient {
-    private const val BASE_URL = "http://10.0.2.2:8000"
-
     val service: SmartAttendanceApi by lazy {
         Retrofit.Builder()
-            .baseUrl(BASE_URL)
+            .baseUrl(AppConfig.apiBaseUrl)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
             .create(SmartAttendanceApi::class.java)
