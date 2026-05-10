@@ -1,0 +1,50 @@
+# App-focused CI/CD for admin-web only.
+# CD is handled by Vercel Git integration from `admin-web` root.
+
+name: App CI/CD
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "admin-web/**"
+      - ".github/workflows/ci.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "admin-web/**"
+      - ".github/workflows/ci.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Placeholder Clerk values so `next build` succeeds without repo secrets (matches local smoke builds).
+  NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ci
+  CLERK_SECRET_KEY: sk_test_ci
+
+jobs:
+  app:
+    name: Admin web — build & route smoke
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: admin-web
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: admin-web/package-lock.json
+
+      - name: Install & build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Role route smoke check
+        run: npm run smoke:routes

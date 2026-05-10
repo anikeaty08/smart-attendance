@@ -1,13 +1,19 @@
 import os
 from io import BytesIO
 
-os.environ["DATABASE_URL"] = "postgresql+psycopg://postgres:aniket@localhost/attendance_test"
+# Local defaults preserve existing dev setups; CI sets TEST_DATABASE_URL + POSTGRES_ADMIN_URL.
+_DEFAULT_TEST_DB = "postgresql+psycopg://postgres:aniket@localhost/attendance_test"
+_DEFAULT_ADMIN = "postgresql://postgres:aniket@localhost/postgres"
+
+_TEST_DB_URL = os.environ.get("TEST_DATABASE_URL", _DEFAULT_TEST_DB).strip()
+_POSTGRES_ADMIN_URL = os.environ.get("POSTGRES_ADMIN_URL", _DEFAULT_ADMIN).strip()
+os.environ["DATABASE_URL"] = _TEST_DB_URL
 
 
 def ensure_test_database() -> None:
     import psycopg
 
-    with psycopg.connect("postgresql://postgres:aniket@localhost/postgres", autocommit=True) as conn:
+    with psycopg.connect(_POSTGRES_ADMIN_URL, autocommit=True) as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT 1 FROM pg_database WHERE datname = 'attendance_test'")
             if cur.fetchone() is None:
