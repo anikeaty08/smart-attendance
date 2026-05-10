@@ -37,11 +37,11 @@ from app.schemas import (
     TimetableSlotCreate,
     TimetableSlotOut,
 )
-from app.security import require_role
+from app.security import require_first_login_verified, require_role
 from app.time_utils import utcnow
 from app.utils import build_csv, parse_upload
 
-router = APIRouter(prefix="/hod", tags=["HOD"])
+router = APIRouter(prefix="/hod", tags=["HOD"], dependencies=[Depends(require_first_login_verified)])
 
 
 def _get_hod_dept(current: dict) -> int:

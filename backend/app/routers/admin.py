@@ -21,10 +21,10 @@ from app.schemas import (
     ImportResponse, LeaveRequestOut, StudentOut, StudentUpdate, SubjectCreate,
     SubjectOfferingOut, SubjectOut, SubjectUpdate, UpdateSubjectOfferingRequest,
 )
-from app.security import require_role
+from app.security import require_first_login_verified, require_role
 from app.utils import build_csv, paginate_query, parse_upload
 
-router = APIRouter(prefix="/admin", tags=["Admin"])
+router = APIRouter(prefix="/admin", tags=["Admin"], dependencies=[Depends(require_first_login_verified)])
 
 
 def _utcnow() -> datetime:

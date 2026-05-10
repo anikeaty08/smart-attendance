@@ -34,11 +34,29 @@ class MeResponse(BaseModel):
     is_hod: bool = False
     department_id: int | None = None
     department_name: str | None = None
+    first_login_verified: bool = True
+    must_change_password: bool = False
 
 
 class ChangePasswordRequest(BaseModel):
     old_password: str = Field(min_length=4)
     new_password: str = Field(min_length=4)
+
+
+class FirstLoginOtpStartResponse(BaseModel):
+    status: str
+    email: EmailStr
+    expires_in_minutes: int
+    delivery: str
+
+
+class FirstLoginOtpVerifyRequest(BaseModel):
+    otp: str = Field(min_length=6, max_length=6)
+
+
+class FirstLoginOtpVerifyResponse(BaseModel):
+    status: str
+    first_login_verified: bool
 
 
 # ---------------------------------------------------------------------------

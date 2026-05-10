@@ -35,6 +35,7 @@ import in.bmsit.smartattendance.network.AttendanceAlertDto
 import in.bmsit.smartattendance.network.AttendanceSummaryDto
 import in.bmsit.smartattendance.network.CreateCondonationRequest
 import in.bmsit.smartattendance.network.CreateLeaveRequest
+import in.bmsit.smartattendance.network.FirstLoginOtpVerifyRequest
 import in.bmsit.smartattendance.network.MeResponse
 import in.bmsit.smartattendance.network.StartSessionRequest
 import in.bmsit.smartattendance.network.StartSessionResponse
@@ -83,7 +84,11 @@ fun SmartAttendanceApp() {
                 Text("${me!!.name} / ${me!!.role}", fontWeight = FontWeight.SemiBold)
                 OutlinedButton(onClick = { me = null }) { Text("Sign out") }
             }
-            if (me!!.role == "student") {
+            if (!me!!.first_login_verified) {
+                FirstLoginVerificationPanel(token = token, email = me!!.email, onVerified = {
+                    scope.launch { me = ApiClient.service.me("Bearer $token") }
+                })
+            } else if (me!!.role == "student") {
                 StudentDashboard(token = token)
             } else {
                 FacultyDashboard(token = token)
@@ -129,6 +134,42 @@ fun LoginPanel(
         )
         Button(onClick = onLogin, enabled = token.isNotBlank() && !loading) { Text(if (loading) "Checking" else "Continue") }
         if (status.isNotBlank()) Text(status, color = Color(0xFFB42318))
+    }
+}
+
+@Composable
+fun FirstLoginVerificationPanel(token: String, email: String, onVerified: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var otp by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf("") }
+    ThinCard {
+        Text("Verify first login", fontWeight = FontWeight.SemiBold)
+        Text("The initial password is shared only for onboarding. Verify the OTP sent to $email before continuing.", color = Color(0xFF666666))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = {
+                scope.launch {
+                    try {
+                        val response = ApiClient.service.startFirstLoginOtp("Bearer $token")
+                        status = "OTP sent by ${response.delivery}. Expires in ${response.expires_in_minutes} minutes."
+                    } catch (error: Exception) {
+                        status = error.message ?: "Could not send OTP"
+                    }
+                }
+            }) { Text("Send OTP") }
+            OutlinedTextField(value = otp, onValueChange = { otp = it.take(6) }, label = { Text("OTP") })
+        }
+        Button(enabled = otp.length == 6, onClick = {
+            scope.launch {
+                try {
+                    ApiClient.service.verifyFirstLoginOtp("Bearer $token", FirstLoginOtpVerifyRequest(otp))
+                    status = "Verified. Change your password in account settings."
+                    onVerified()
+                } catch (error: Exception) {
+                    status = error.message ?: "OTP verification failed"
+                }
+            }
+        }) { Text("Verify") }
+        if (status.isNotBlank()) Text(status)
     }
 }
 

@@ -11,6 +11,15 @@ interface SmartAttendanceApi {
     @GET("/me")
     suspend fun me(@Header("Authorization") bearerToken: String): MeResponse
 
+    @POST("/auth/first-login/start")
+    suspend fun startFirstLoginOtp(@Header("Authorization") bearerToken: String): FirstLoginOtpStartResponse
+
+    @POST("/auth/first-login/verify")
+    suspend fun verifyFirstLoginOtp(
+        @Header("Authorization") bearerToken: String,
+        @Body request: FirstLoginOtpVerifyRequest,
+    ): FirstLoginOtpVerifyResponse
+
     @GET("/student/subjects")
     suspend fun studentSubjects(@Header("Authorization") bearerToken: String): List<SubjectOfferingDto>
 
@@ -81,7 +90,13 @@ data class MeResponse(
     val is_hod: Boolean,
     val department_id: Int?,
     val department_name: String?,
+    val first_login_verified: Boolean,
+    val must_change_password: Boolean,
 )
+
+data class FirstLoginOtpStartResponse(val status: String, val email: String, val expires_in_minutes: Int, val delivery: String)
+data class FirstLoginOtpVerifyRequest(val otp: String)
+data class FirstLoginOtpVerifyResponse(val status: String, val first_login_verified: Boolean)
 
 data class SubjectOfferingDto(
     val id: Int,

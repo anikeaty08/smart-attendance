@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.database import SessionLocal
-from app.models import AccountStatus, Department, Faculty, Student
+from app.models import AccountStatus, Department, Faculty, FirstLoginVerification, Student
 
 
 INITIAL_PASSWORD = "pass123"
@@ -118,6 +118,9 @@ def ensure_aiml_records() -> tuple[int, int]:
                 student.current_semester = 4
                 student.section = student_section(number)
                 student.status = AccountStatus.active.value
+            verification = db.scalar(select(FirstLoginVerification).where(FirstLoginVerification.email == email))
+            if not verification:
+                db.add(FirstLoginVerification(email=email, verified=False, attempts=0))
 
         faculty_changed = 0
         for item in FACULTY:
@@ -140,6 +143,9 @@ def ensure_aiml_records() -> tuple[int, int]:
                 faculty.is_admin = faculty.is_admin or item.is_admin
                 faculty.is_hod = faculty.is_hod or item.is_hod
                 faculty.status = AccountStatus.active.value
+            verification = db.scalar(select(FirstLoginVerification).where(FirstLoginVerification.email == email))
+            if not verification:
+                db.add(FirstLoginVerification(email=email, verified=False, attempts=0))
 
         db.commit()
         return students_changed, faculty_changed
@@ -175,6 +181,8 @@ class ClerkProvisioner:
             "role": role,
             "department": "AIML",
             "must_change_password": True,
+            "first_login_verified": False,
+            "first_login_otp_required": True,
             "initial_password_set": True,
         }
         payload = {
@@ -251,4 +259,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

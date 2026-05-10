@@ -354,3 +354,20 @@ class CondonationRequest(Base):
     student = relationship("Student")
     subject_offering = relationship("SubjectOffering")
     reviewer = relationship("Faculty")
+
+
+class FirstLoginVerification(Base):
+    __tablename__ = "first_login_verifications"
+    __table_args__ = (
+        Index("ix_first_login_email_verified", "email", "verified"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(180), unique=True, index=True)
+    otp_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    verified: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

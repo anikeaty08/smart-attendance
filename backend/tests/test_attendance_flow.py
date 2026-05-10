@@ -25,6 +25,7 @@ from app.main import app
 from app.models import (
     Department,
     Faculty,
+    FirstLoginVerification,
     Student,
     StudentEnrollment,
     Subject,
@@ -74,6 +75,14 @@ def clean_db():
         db.add_all([enrolled, hidden])
         db.flush()
         db.add(StudentEnrollment(student_id=student.id, subject_offering_id=enrolled.id, enrollment_type="core"))
+        for email in [
+            "student1@student.bmsit.in",
+            "student2@student.bmsit.in",
+            "faculty1@bmsit.in",
+            "hod@bmsit.in",
+            "admin@bmsit.in",
+        ]:
+            db.add(FirstLoginVerification(email=email, verified=True))
         db.commit()
     finally:
         db.close()

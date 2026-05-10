@@ -31,11 +31,11 @@ from app.schemas import (
     SubjectOfferingOut,
     TimetableSlotOut,
 )
-from app.security import require_role
+from app.security import require_first_login_verified, require_role
 from app.time_utils import as_utc, db_utc, utcnow
 from app.utils import haversine_meters
 
-router = APIRouter(prefix="/student", tags=["Student"])
+router = APIRouter(prefix="/student", tags=["Student"], dependencies=[Depends(require_first_login_verified)])
 
 
 def _offering_out(offering: SubjectOffering, enrollment_type: str | None = None) -> SubjectOfferingOut:

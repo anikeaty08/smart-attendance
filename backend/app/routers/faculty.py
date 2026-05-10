@@ -27,12 +27,12 @@ from app.schemas import (
     StartSessionResponse,
     SubjectOfferingOut,
 )
-from app.security import require_role
+from app.security import require_first_login_verified, require_role
 from app.time_utils import as_utc, db_utc, utcnow
 from app.utils import build_csv, generate_session_code
 from app.security import hash_code
 
-router = APIRouter(prefix="/faculty", tags=["Faculty"])
+router = APIRouter(prefix="/faculty", tags=["Faculty"], dependencies=[Depends(require_first_login_verified)])
 
 
 def _offering_out(offering: SubjectOffering) -> SubjectOfferingOut:

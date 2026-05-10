@@ -13,6 +13,13 @@ class Settings(BaseSettings):
     max_gps_accuracy_meters: int = 50
     default_session_minutes: int = 5
     correction_window_hours: int = 48
+    first_login_otp_minutes: int = 10
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = "no-reply@bmsit.in"
+    smtp_use_tls: bool = True
 
     @property
     def domains(self) -> set[str]:

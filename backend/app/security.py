@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
-from app.models import AccountStatus, Faculty, Student
+from app.models import AccountStatus, Faculty, FirstLoginVerification, Student
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -154,3 +154,10 @@ def require_role(*roles: Literal["student", "faculty", "admin", "hod"]):
         return current
 
     return dependency
+
+
+def require_first_login_verified(current=Depends(get_current_user), db: Session = Depends(get_db)):
+    verification = db.scalar(select(FirstLoginVerification).where(FirstLoginVerification.email == current["user"].email))
+    if not verification or not verification.verified:
+        raise HTTPException(status_code=403, detail="first_login_verification_required")
+    return current

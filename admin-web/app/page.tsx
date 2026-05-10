@@ -34,6 +34,14 @@ const views: Array<{ id: View; label: string }> = [
 
 const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
 
+type Profile = {
+  name: string;
+  role: string;
+  email: string;
+  first_login_verified: boolean;
+  must_change_password: boolean;
+};
+
 function Logo() {
   return <div className="logo">SA</div>;
 }
@@ -110,6 +118,8 @@ function AdminApp() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [otp, setOtp] = useState("");
 
   async function api(path: string, options: RequestInit = {}) {
     const token = await getToken();
@@ -147,9 +157,61 @@ function AdminApp() {
   }
 
   useEffect(() => {
-    void load(view);
+    void bootstrap();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view]);
+  }, []);
+
+  useEffect(() => {
+    if (profile?.first_login_verified) void load(view);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, profile?.first_login_verified]);
+
+  async function bootstrap() {
+    setLoading(true);
+    try {
+      const data = await api("/me");
+      setProfile(data);
+      if (data.first_login_verified) {
+        if (view === "dashboard") {
+          const metricsData = await api("/admin/dashboard");
+          setMetrics(metricsData);
+        }
+      }
+    } catch (error) {
+      setStatus(JSON.stringify(error, null, 2));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function sendOtp() {
+    setLoading(true);
+    try {
+      const data = await api("/auth/first-login/start", { method: "POST" });
+      setStatus(JSON.stringify(data, null, 2));
+    } catch (error) {
+      setStatus(JSON.stringify(error, null, 2));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function verifyOtp() {
+    setLoading(true);
+    try {
+      await api("/auth/first-login/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ otp })
+      });
+      await bootstrap();
+      setStatus("First-login verification completed. Now change your Clerk password from account settings.");
+    } catch (error) {
+      setStatus(JSON.stringify(error, null, 2));
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function upload(kind: string, file: File | null) {
     if (!file) {
@@ -198,7 +260,25 @@ function AdminApp() {
           <UserButton afterSignOutUrl="/" />
         </header>
 
-        {view === "dashboard" ? (
+        {profile && !profile.first_login_verified ? (
+          <section className="panel">
+            <div className="panel-head">
+              <h3>First-login verification</h3>
+              <span className="badge warning">Required</span>
+            </div>
+            <div className="panel-body" style={{ display: "grid", gap: 12, maxWidth: 560 }}>
+              <p style={{ color: "var(--muted)" }}>
+                This account still has the initial password. Verify the OTP sent to {profile.email} before using admin
+                features.
+              </p>
+              <div className="toolbar">
+                <button disabled={loading} onClick={() => void sendOtp()}>Send OTP</button>
+                <input value={otp} onChange={(event) => setOtp(event.target.value)} placeholder="6-digit OTP" />
+                <button disabled={loading || otp.length !== 6} onClick={() => void verifyOtp()}>Verify</button>
+              </div>
+            </div>
+          </section>
+        ) : view === "dashboard" ? (
           <>
             <section className="metrics">
               {Object.entries(metrics).map(([key, value]) => (
@@ -342,4 +422,3 @@ export default function Page() {
     </>
   );
 }
-
