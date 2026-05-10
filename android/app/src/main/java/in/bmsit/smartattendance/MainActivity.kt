@@ -1,4 +1,4 @@
-package in.bmsit.smartattendance
+package `in`.bmsit.smartattendance
 
 import android.Manifest
 import android.content.Context
@@ -42,17 +42,17 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.CurrentLocationRequest
 import com.google.android.gms.location.LocationServices
-import in.bmsit.smartattendance.network.ActiveSessionDto
-import in.bmsit.smartattendance.network.ApiClient
-import in.bmsit.smartattendance.network.AttendanceAlertDto
-import in.bmsit.smartattendance.network.AttendanceSummaryDto
-import in.bmsit.smartattendance.network.CreateCondonationRequest
-import in.bmsit.smartattendance.network.CreateLeaveRequest
-import in.bmsit.smartattendance.network.FirstLoginOtpVerifyRequest
-import in.bmsit.smartattendance.network.MeResponse
-import in.bmsit.smartattendance.network.StartSessionRequest
-import in.bmsit.smartattendance.network.StartSessionResponse
-import in.bmsit.smartattendance.network.SubjectOfferingDto
+import `in`.bmsit.smartattendance.network.ActiveSessionDto
+import `in`.bmsit.smartattendance.network.ApiClient
+import `in`.bmsit.smartattendance.network.AttendanceAlertDto
+import `in`.bmsit.smartattendance.network.AttendanceSummaryDto
+import `in`.bmsit.smartattendance.network.CreateCondonationRequest
+import `in`.bmsit.smartattendance.network.CreateLeaveRequest
+import `in`.bmsit.smartattendance.network.FirstLoginOtpVerifyRequest
+import `in`.bmsit.smartattendance.network.MeResponse
+import `in`.bmsit.smartattendance.network.StartSessionRequest
+import `in`.bmsit.smartattendance.network.StartSessionResponse
+import `in`.bmsit.smartattendance.network.SubjectOfferingDto
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.json.JSONObject
@@ -376,7 +376,7 @@ fun StudentDashboard(token: String) {
                         }
                         val response = ApiClient.service.markAttendance(
                             "Bearer $token",
-                            in.bmsit.smartattendance.network.MarkAttendanceRequest(
+                            `in`.bmsit.smartattendance.network.MarkAttendanceRequest(
                                 sessionId,
                                 code,
                                 location.latitude,

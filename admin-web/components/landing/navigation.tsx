@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Menu, X } from "lucide-react";
 import { useAuth } from "@clerk/nextjs";
+import { checkBackendReachable } from "@/lib/api";
 
 const navLinks = [
   { name: "Features",      href: "#features"      },
@@ -16,6 +17,7 @@ const navLinks = [
 export function Navigation() {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [backendReady, setBackendReady] = useState<boolean | null>(null);
   const { isSignedIn } = useAuth();
 
   useEffect(() => {
@@ -24,6 +26,13 @@ export function Navigation() {
     };
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  useEffect(() => {
+    void (async () => {
+      const reachable = await checkBackendReachable();
+      setBackendReady(reachable);
+    })();
   }, []);
 
   return (
@@ -67,15 +76,17 @@ export function Navigation() {
           </div>
 
           {/* Desktop CTA */}
-          <div className="hidden md:flex items-center gap-4">
-            <Button
-              size="sm"
-              className={`rounded-full transition-all duration-500 ${isScrolled ? "bg-foreground hover:bg-foreground/90 text-background px-4 h-8 text-xs" : "bg-white hover:bg-white/90 text-black px-6"}`}
-              onClick={() => window.location.href = isSignedIn ? "/portal" : "/login"}
-            >
-              {isSignedIn ? "Go to Portal" : "Staff Login"}
-            </Button>
-          </div>
+          {backendReady !== false && (
+            <div className="hidden md:flex items-center gap-4">
+              <Button
+                size="sm"
+                className={`rounded-full transition-all duration-500 cursor-pointer ${isScrolled ? "bg-foreground hover:bg-foreground/90 text-background px-4 h-8 text-xs" : "bg-white hover:bg-white/90 text-black px-6"}`}
+                onClick={() => window.location.href = isSignedIn ? "/portal" : "/login"}
+              >
+                {isSignedIn ? "Go to Portal" : "Staff Login"}
+              </Button>
+            </div>
+          )}
 
           {/* Mobile Menu Button */}
           <button
@@ -123,7 +134,8 @@ export function Navigation() {
           </div>
           
           {/* Bottom CTAs */}
-          <div className={`flex gap-4 pt-8 border-t border-foreground/10 transition-all duration-500 ${
+          {backendReady !== false && (
+            <div className={`flex gap-4 pt-8 border-t border-foreground/10 transition-all duration-500 ${
             isMobileMenuOpen 
               ? "opacity-100 translate-y-0" 
               : "opacity-0 translate-y-4"
@@ -131,12 +143,13 @@ export function Navigation() {
           style={{ transitionDelay: isMobileMenuOpen ? "300ms" : "0ms" }}
           >
             <Button 
-              className="flex-1 bg-foreground text-background rounded-full h-14 text-base"
+              className="flex-1 bg-foreground text-background rounded-full h-14 text-base cursor-pointer"
               onClick={() => { setIsMobileMenuOpen(false); window.location.href = isSignedIn ? "/portal" : "/login"; }}
             >
               {isSignedIn ? "Go to Portal" : "Staff Login"}
             </Button>
-          </div>
+            </div>
+          )}
         </div>
       </div>
     </header>

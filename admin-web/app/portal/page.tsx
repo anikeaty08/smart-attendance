@@ -3,8 +3,7 @@
 import { useAuth, useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+import { API_BASE, checkBackendReachable } from "@/lib/api";
 
 export default function PortalRedirect() {
   const { isLoaded, isSignedIn } = useUser();
@@ -17,6 +16,10 @@ export default function PortalRedirect() {
 
     (async () => {
       try {
+        if (!API_BASE || !(await checkBackendReachable())) {
+          router.replace("/");
+          return;
+        }
         const token = await getToken();
         const res = await fetch(`${API_BASE}/me`, {
           headers: { Authorization: `Bearer ${token}` },

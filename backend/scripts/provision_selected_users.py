@@ -12,6 +12,7 @@ from scripts.provision_aiml_users import ClerkProvisioner, ensure_aiml_records
 SELECTED_FACULTY = [
     ("principal@bmsit.in", "Dr. Sanjay H A", "admin"),
     ("s.megha@bmsit.in", "Prof. Megha S", "hod"),
+    ("hod_aiml@bmsit.in", "AIML HOD", "hod"),
     ("pradeepkr@bmsit.in", "Dr. Pradeep K R", "faculty"),
     ("balaraju.g@bmsit.in", "Prof. Balaraju G", "faculty"),
 ]

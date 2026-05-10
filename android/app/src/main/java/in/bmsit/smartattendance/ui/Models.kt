@@ -1,4 +1,4 @@
-package in.bmsit.smartattendance.ui
+package `in`.bmsit.smartattendance.ui
 
 data class StudentSubject(
     val subjectCode: String,

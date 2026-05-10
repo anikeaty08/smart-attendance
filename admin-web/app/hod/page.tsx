@@ -19,6 +19,7 @@ export default function HodDashboardPage() {
   const { getToken } = useAuth();
   const router = useRouter();
   const [data, setData] = useState<HodOverview | null>(null);
+  const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
     if (!isLoaded) return;
@@ -32,7 +33,16 @@ export default function HodDashboardPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) {
-        router.replace("/portal");
+        if (res.status === 400) {
+          const payload = await res.json().catch(() => null);
+          if (payload?.detail === "hod_department_not_configured") {
+            setErrorMessage(
+              "Your HOD account is missing department mapping. Ask admin to assign department for this account."
+            );
+            return;
+          }
+        }
+        setErrorMessage("Unable to load HOD dashboard right now.");
         return;
       }
       setData(await res.json());
@@ -41,6 +51,11 @@ export default function HodDashboardPage() {
 
   return (
     <DashboardLayout role="hod" pageTitle="Department">
+      {errorMessage && (
+        <div className="mb-4 border border-amber-400/40 bg-amber-400/10 p-4 text-amber-300">
+          {errorMessage}
+        </div>
+      )}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         {[
           ["Students", data?.total_students ?? 0],

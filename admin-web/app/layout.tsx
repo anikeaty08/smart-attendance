@@ -50,7 +50,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         },
       }}
     >
-      <html lang="en" className="bg-background">
+      <html lang="en" className="bg-background" data-scroll-behavior="smooth">
         <body
           className={`${instrumentSans.variable} ${instrumentSerif.variable} ${jetbrainsMono.variable} font-sans antialiased bg-background text-foreground`}
         >

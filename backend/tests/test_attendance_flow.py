@@ -463,3 +463,31 @@ def test_admin_subject_import_allows_partial_success():
     assert body["imported"] == 1
     assert len(body["errors"]) == 1
     assert body["errors"][0]["field"] == "subject_code"
+
+
+def test_hod_department_endpoint_requires_department_mapping():
+    db = SessionLocal()
+    try:
+        orphan_hod = Faculty(
+            name="Orphan HOD",
+            email="orphan_hod@bmsit.in",
+            department_id=None,
+            is_hod=True,
+        )
+        db.add(orphan_hod)
+        db.add(FirstLoginVerification(email="orphan_hod@bmsit.in", verified=True))
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.get("/hod/department", headers={"Authorization": f"Bearer {token('orphan_hod@bmsit.in')}"})
+    assert response.status_code == 400
+    assert response.json()["detail"] == "hod_department_not_configured"
+
+
+def test_hod_department_endpoint_works_for_mapped_hod():
+    response = client.get("/hod/department", headers={"Authorization": f"Bearer {token('hod@bmsit.in')}"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total_students"] >= 0
+    assert payload["total_faculty"] >= 0

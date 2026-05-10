@@ -28,6 +28,7 @@ class FacultyInput:
 FACULTY: list[FacultyInput] = [
     FacultyInput("Dr. Sanjay H A", "principal@bmsit.in", is_admin=True),
     FacultyInput("Dr. Anupama H S", "anupamahs@bmsit.in", is_hod=True),
+    FacultyInput("AIML HOD", "hod_aiml@bmsit.in", is_hod=True),
     FacultyInput("Dr. Pradeep K R", "pradeepkr@bmsit.in"),
     FacultyInput("Dr. Bharathi Malakreddy A", "bharathi_m@bmsit.in"),
     FacultyInput("Dr. Hemamalini B H", "bhhemaraj@bmsit.in"),

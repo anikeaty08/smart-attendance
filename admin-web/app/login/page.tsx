@@ -1,7 +1,8 @@
 "use client";
 
 import { SignIn } from "@clerk/nextjs";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { checkBackendReachable } from "@/lib/api";
 
 function GridLines() {
   return (
@@ -34,6 +35,7 @@ function AnimatedOrb({ className }: { className?: string }) {
 
 export default function LoginPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [backendReady, setBackendReady] = useState<boolean | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -77,6 +79,12 @@ export default function LoginPage() {
       window.removeEventListener("resize", resize);
       cancelAnimationFrame(id);
     };
+  }, []);
+
+  useEffect(() => {
+    void (async () => {
+      setBackendReady(await checkBackendReachable());
+    })();
   }, []);
 
   return (
@@ -158,31 +166,37 @@ export default function LoginPage() {
           </div>
 
           {/* Clerk SignIn — no sign-up, no social */}
-          <div className="clerk-login-wrapper">
-            <SignIn
-              routing="hash"
-              fallbackRedirectUrl="/portal"
-              appearance={{
-                elements: {
-                  rootBox: "w-full",
-                  card: "w-full bg-transparent shadow-none p-0 gap-0",
-                  headerTitle: "hidden",
-                  headerSubtitle: "hidden",
-                  socialButtonsBlockButton: "hidden",
-                  socialButtonsBlock: "hidden",
-                  dividerRow: "hidden",
-                  dividerLine: "hidden",
-                  dividerText: "hidden",
-                  footerAction: "hidden",
-                  footer: "hidden",
-                  formButtonPrimary:
-                    "w-full h-11 bg-white text-black text-sm font-medium rounded-sm hover:bg-white/90 active:bg-white/80 transition-all mt-2",
-                  identityPreviewText: "text-white/70",
-                  identityPreviewEditButtonIcon: "text-white/40",
-                },
-              }}
-            />
-          </div>
+          {backendReady === false ? (
+            <div className="border border-white/15 bg-white/5 p-4 text-sm text-white/70">
+              Backend is currently unavailable. Please try again later.
+            </div>
+          ) : (
+            <div className="clerk-login-wrapper">
+              <SignIn
+                routing="hash"
+                fallbackRedirectUrl="/portal"
+                appearance={{
+                  elements: {
+                    rootBox: "w-full",
+                    card: "w-full bg-transparent shadow-none p-0 gap-0",
+                    headerTitle: "hidden",
+                    headerSubtitle: "hidden",
+                    socialButtonsBlockButton: "hidden",
+                    socialButtonsBlock: "hidden",
+                    dividerRow: "hidden",
+                    dividerLine: "hidden",
+                    dividerText: "hidden",
+                    footerAction: "hidden",
+                    footer: "hidden",
+                    formButtonPrimary:
+                      "w-full h-11 bg-white text-black text-sm font-medium rounded-sm hover:bg-white/90 active:bg-white/80 transition-all mt-2 cursor-pointer",
+                    identityPreviewText: "text-white/70",
+                    identityPreviewEditButtonIcon: "text-white/40",
+                  },
+                }}
+              />
+            </div>
+          )}
 
           {/* Bottom note */}
           <p className="text-center text-white/20 text-xs font-mono mt-8">

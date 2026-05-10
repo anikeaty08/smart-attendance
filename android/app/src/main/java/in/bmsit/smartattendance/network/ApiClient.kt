@@ -1,4 +1,4 @@
-package in.bmsit.smartattendance.network
+package `in`.bmsit.smartattendance.network
 
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory

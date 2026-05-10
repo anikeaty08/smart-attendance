@@ -1,6 +1,11 @@
 .gradle/
 build/
 local.properties
+captures/
+*.hprof
+.gradle/
+build/
+local.properties
 *.iml
 .idea/
 captures/
