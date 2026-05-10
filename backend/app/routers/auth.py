@@ -86,6 +86,9 @@ def start_first_login_otp(
     db: Session = Depends(get_db),
 ):
     user = current["user"]
+    if current["role"] == "student" or (user.email and user.email[0].isdigit()):
+        raise HTTPException(status_code=403, detail="Students are not permitted in the staff portal.")
+
     verification = _verification_for(db, user.email)
     if verification.verified:
         return FirstLoginOtpStartResponse(
@@ -116,6 +119,9 @@ def verify_first_login_otp(
     db: Session = Depends(get_db),
 ):
     user = current["user"]
+    if current["role"] == "student" or (user.email and user.email[0].isdigit()):
+        raise HTTPException(status_code=403, detail="Students are not permitted in the staff portal.")
+
     verification = _verification_for(db, user.email)
     if verification.verified:
         return FirstLoginOtpVerifyResponse(status="already_verified", first_login_verified=True)

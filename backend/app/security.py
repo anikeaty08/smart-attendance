@@ -111,6 +111,9 @@ def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="not_authenticated")
 
     payload = _verify_clerk_token(credentials.credentials)
+    
+    import httpx
+    from app.config import settings
 
     # Clerk stores email in primary_email_address or email_addresses[0].email_address
     # The session token typically exposes it under the "email" or nested claim.
@@ -119,10 +122,30 @@ def get_current_user(
     # We use the email claim we configure in Clerk's session token customization.
     email = payload.get("email")
     if not email:
-        # Fallback: try extracting from email_addresses if present
         email_addresses = payload.get("email_addresses", [])
         if email_addresses:
             email = email_addresses[0].get("email_address")
+            
+    if not email and "sub" in payload and settings.clerk_secret_key:
+        # Fallback: fetch from Clerk API
+        try:
+            resp = httpx.get(
+                f"https://api.clerk.com/v1/users/{payload['sub']}",
+                headers={"Authorization": f"Bearer {settings.clerk_secret_key}"},
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                user_data = resp.json()
+                primary_email_id = user_data.get("primary_email_address_id")
+                for e in user_data.get("email_addresses", []):
+                    if e.get("id") == primary_email_id:
+                        email = e.get("email_address")
+                        break
+                if not email and user_data.get("email_addresses"):
+                    email = user_data["email_addresses"][0].get("email_address")
+        except Exception as e:
+            print(f"Failed to fetch email from Clerk: {e}")
+
     if not email:
         raise HTTPException(status_code=401, detail="email_claim_missing_in_token")
 
