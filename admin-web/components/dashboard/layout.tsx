@@ -31,15 +31,15 @@ const adminNav = [
 ];
 
 const hodNav = [
-  { label: "Department", href: "/admin", icon: LayoutDashboard },
-  { label: "Students", href: "/admin/students", icon: Users },
-  { label: "Faculty", href: "/admin/faculty", icon: UserCheck },
-  { label: "Offerings", href: "/admin/offerings", icon: GitBranch },
-  { label: "Timetable", href: "/admin/timetable", icon: Calendar },
-  { label: "Substitutes", href: "/admin/substitutes", icon: UserCheck },
-  { label: "Leave Requests", href: "/admin/leave-requests", icon: FileText },
-  { label: "Reports", href: "/admin/reports", icon: BarChart2 },
-  { label: "Corrections", href: "/admin/corrections", icon: FileText },
+  { label: "Department", href: "/hod", icon: LayoutDashboard },
+  { label: "Students", href: "/hod/students", icon: Users },
+  { label: "Faculty", href: "/hod/faculty", icon: UserCheck },
+  { label: "Offerings", href: "/hod/offerings", icon: GitBranch },
+  { label: "Timetable", href: "/hod/timetable", icon: Calendar },
+  { label: "Substitutes", href: "/hod/substitutes", icon: UserCheck },
+  { label: "Leave Requests", href: "/hod/leave-requests", icon: FileText },
+  { label: "Reports", href: "/hod/reports", icon: BarChart2 },
+  { label: "Corrections", href: "/hod/corrections", icon: FileText },
 ];
 
 const teacherNav = [
@@ -58,7 +58,7 @@ function NavItem({
 }) {
   const pathname = usePathname();
   const isActive =
-    item.href === "/admin" || item.href === "/teacher"
+    item.href === "/admin" || item.href === "/teacher" || item.href === "/hod"
       ? pathname === item.href
       : pathname.startsWith(item.href);
   const Icon = item.icon;

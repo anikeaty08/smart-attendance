@@ -33,7 +33,7 @@ from app.schemas import (
 )
 from app.security import require_first_login_verified, require_role
 from app.time_utils import as_utc, db_utc, utcnow
-from app.utils import haversine_meters
+from app.utils import PRESENT_EQUIVALENT_STATUSES, haversine_meters
 
 router = APIRouter(prefix="/student", tags=["Student"], dependencies=[Depends(require_first_login_verified)])
 
@@ -274,7 +274,7 @@ def student_summary(current=Depends(require_role("student")), db: Session = Depe
                 select(func.count(AttendanceRecord.id)).where(
                     AttendanceRecord.student_id == student.id,
                     AttendanceRecord.session_id.in_(session_ids),
-                    AttendanceRecord.status == "present",
+                    AttendanceRecord.status.in_(PRESENT_EQUIVALENT_STATUSES),
                 )
             ) or 0
         percentage = round((present / total) * 100, 2) if total else 0.0
@@ -304,7 +304,7 @@ def _attendance_percentage(db: Session, student_id: int, offering_id: int) -> fl
         select(func.count(AttendanceRecord.id)).where(
             AttendanceRecord.student_id == student_id,
             AttendanceRecord.session_id.in_(session_ids),
-            AttendanceRecord.status == "present",
+            AttendanceRecord.status.in_(PRESENT_EQUIVALENT_STATUSES),
         )
     ) or 0
     return round((present / len(session_ids)) * 100, 2)

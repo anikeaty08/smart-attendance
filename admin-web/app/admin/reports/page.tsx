@@ -9,10 +9,10 @@ import { Download, AlertTriangle, Filter } from "lucide-react";
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 interface Defaulter {
-  usn: string; name: string; email: string;
-  branch_code: string | null; semester: number; section: string;
+  usn: string; student_name: string;
+  section: string;
   subject_code: string; subject_name: string;
-  total_sessions: number; present: number; percentage: number;
+  total_sessions: number; present_sessions: number; percentage: number;
 }
 
 export default function AdminReportsPage() {
@@ -43,11 +43,11 @@ export default function AdminReportsPage() {
       });
       if (res.ok) {
         const data = await res.json();
-        const filtered = branchFilter ? data.filter((d: Defaulter) => d.branch_code === branchFilter) : data;
+        const filtered = branchFilter ? data.filter((d: Defaulter) => d.section === branchFilter) : data;
         setDefaulters(filtered);
         
         // Extract unique branches
-        const uniqueBranches = Array.from(new Set(data.map((d: Defaulter) => d.branch_code).filter(Boolean))) as string[];
+        const uniqueBranches = Array.from(new Set(data.map((d: Defaulter) => d.section).filter(Boolean))) as string[];
         if (uniqueBranches.length > branches.length) setBranches(uniqueBranches.sort());
       }
     } finally { setLoading(false); }
@@ -135,14 +135,14 @@ export default function AdminReportsPage() {
                   defaulters.map((d, i) => (
                     <tr key={`${d.usn}-${d.subject_code}-${i}`} className="border-b border-[oklch(0.11_0.008_260)] hover:bg-white/[0.02] transition-colors">
                       <td className="px-4 py-3 font-mono text-white/80 text-xs">{d.usn}</td>
-                      <td className="px-4 py-3 text-white font-medium whitespace-nowrap">{d.name}</td>
-                      <td className="px-4 py-3 text-white/60 font-mono text-xs">{d.branch_code ?? "—"}</td>
-                      <td className="px-4 py-3 text-white/60 font-mono text-xs">{d.semester}/{d.section}</td>
+                      <td className="px-4 py-3 text-white font-medium whitespace-nowrap">{d.student_name}</td>
+                      <td className="px-4 py-3 text-white/60 font-mono text-xs">{d.section ?? "—"}</td>
+                      <td className="px-4 py-3 text-white/60 font-mono text-xs">-/{d.section}</td>
                       <td className="px-4 py-3 text-white/80 text-xs">
                         {d.subject_code} <span className="text-white/40 block text-[10px] truncate max-w-[150px]">{d.subject_name}</span>
                       </td>
                       <td className="px-4 py-3 text-white/60 font-mono text-xs">{d.total_sessions}</td>
-                      <td className="px-4 py-3 text-white/60 font-mono text-xs">{d.present}</td>
+                      <td className="px-4 py-3 text-white/60 font-mono text-xs">{d.present_sessions}</td>
                       <td className="px-4 py-3">
                         <span className={`font-mono text-xs ${d.percentage < 50 ? "text-red-400" : "text-yellow-400"}`}>
                           {d.percentage.toFixed(1)}%

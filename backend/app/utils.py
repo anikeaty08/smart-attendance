@@ -27,6 +27,9 @@ def normalize_email(email: str) -> str:
     return email.strip().lower()
 
 
+PRESENT_EQUIVALENT_STATUSES: tuple[str, ...] = ("present", "late", "excused", "manual_present")
+
+
 # ---------------------------------------------------------------------------
 # Pagination helper
 # ---------------------------------------------------------------------------

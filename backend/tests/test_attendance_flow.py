@@ -1,4 +1,5 @@
 import os
+from io import BytesIO
 
 os.environ["DATABASE_URL"] = "postgresql+psycopg://postgres:aniket@localhost/attendance_test"
 
@@ -218,6 +219,20 @@ def test_invalid_location_and_accuracy_are_rejected():
     assert far.status_code == 400
     assert far.json()["detail"] == "outside_radius"
 
+    invalid_coordinate = client.post(
+        "/student/attendance/mark",
+        headers={"Authorization": f"Bearer {student_token}"},
+        json={
+            "session_id": start.json()["id"],
+            "entered_code": start.json()["code"],
+            "student_latitude": 100.0,
+            "student_longitude": 77.5946,
+            "gps_accuracy_meters": 8,
+            "device_id": "device-c",
+        },
+    )
+    assert invalid_coordinate.status_code == 422
+
 
 def test_failed_attempts_lock_attendance_session():
     faculty_token = token("faculty1@bmsit.in")
@@ -337,3 +352,114 @@ def test_faculty_report_uses_present_records_not_enrolled_count():
     assert first["total_sessions"] == 1
     assert first["present_sessions"] == 1
     assert first["percentage"] == 100.0
+
+
+def test_faculty_correction_rejects_non_enrolled_student():
+    faculty_token = token("faculty1@bmsit.in")
+    start = client.post(
+        "/faculty/sessions/start",
+        headers={"Authorization": f"Bearer {faculty_token}"},
+        json={
+            "subject_offering_id": 1,
+            "session_type": "lecture",
+            "teacher_latitude": 12.9716,
+            "teacher_longitude": 77.5946,
+            "radius_meters": 10,
+            "duration_minutes": 5,
+        },
+    )
+    response = client.put(
+        f"/faculty/sessions/{start.json()['id']}/records/2",
+        headers={"Authorization": f"Bearer {faculty_token}"},
+        json={"new_status": "present", "reason": "Manual correction"},
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"] == "not_enrolled_in_offering"
+
+
+def test_reports_count_late_status_as_present_equivalent():
+    faculty_token = token("faculty1@bmsit.in")
+    admin_token = token("admin@bmsit.in")
+    hod_token = token("hod@bmsit.in")
+    start = client.post(
+        "/faculty/sessions/start",
+        headers={"Authorization": f"Bearer {faculty_token}"},
+        json={
+            "subject_offering_id": 1,
+            "session_type": "lecture",
+            "teacher_latitude": 12.9716,
+            "teacher_longitude": 77.5946,
+            "radius_meters": 10,
+            "duration_minutes": 5,
+        },
+    )
+    assert start.status_code == 200, start.text
+    session_id = start.json()["id"]
+
+    correction = client.put(
+        f"/faculty/sessions/{session_id}/records/1",
+        headers={"Authorization": f"Bearer {faculty_token}"},
+        json={"new_status": "late", "reason": "Reached class with delay"},
+    )
+    assert correction.status_code == 200, correction.text
+
+    faculty_report = client.get("/faculty/attendance/report", headers={"Authorization": f"Bearer {faculty_token}"})
+    assert faculty_report.status_code == 200
+    faculty_row = next(row for row in faculty_report.json() if row["subject_offering_id"] == 1)
+    assert faculty_row["present_sessions"] == 1
+    assert faculty_row["percentage"] == 100.0
+
+    admin_report = client.get("/admin/reports/attendance", headers={"Authorization": f"Bearer {admin_token}"})
+    assert admin_report.status_code == 200
+    admin_row = next(row for row in admin_report.json() if row["usn"] == "1BY23CS001" and row["subject_code"] == "BCS401")
+    assert admin_row["present_sessions"] == 1
+    assert admin_row["percentage"] == 100.0
+
+    hod_report = client.get("/hod/attendance/report", headers={"Authorization": f"Bearer {hod_token}"})
+    assert hod_report.status_code == 200
+    hod_row = next(row for row in hod_report.json() if row["usn"] == "1BY23CS001" and row["subject_code"] == "BCS401")
+    assert hod_row["present"] == 1
+    assert hod_row["percentage"] == 100.0
+
+
+def test_admin_sessions_endpoint_lists_started_session():
+    faculty_token = token("faculty1@bmsit.in")
+    admin_token = token("admin@bmsit.in")
+    start = client.post(
+        "/faculty/sessions/start",
+        headers={"Authorization": f"Bearer {faculty_token}"},
+        json={
+            "subject_offering_id": 1,
+            "session_type": "lecture",
+            "teacher_latitude": 12.9716,
+            "teacher_longitude": 77.5946,
+            "radius_meters": 10,
+            "duration_minutes": 5,
+        },
+    )
+    assert start.status_code == 200, start.text
+
+    sessions = client.get("/admin/sessions", headers={"Authorization": f"Bearer {admin_token}"})
+    assert sessions.status_code == 200, sessions.text
+    payload = sessions.json()
+    assert isinstance(payload.get("items"), list)
+    assert any(item["id"] == start.json()["id"] for item in payload["items"])
+
+
+def test_admin_subject_import_allows_partial_success():
+    admin_token = token("admin@bmsit.in")
+    csv = (
+        "subject_code,subject_name,semester,credits,department_code\n"
+        "BCS900,Special Topics,8,3,CSE\n"
+        "BCS401,Duplicate Existing,4,3,CSE\n"
+    )
+    response = client.post(
+        "/admin/import/subjects",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        files={"file": ("subjects.csv", BytesIO(csv.encode("utf-8")), "text/csv")},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["imported"] == 1
+    assert len(body["errors"]) == 1
+    assert body["errors"][0]["field"] == "subject_code"

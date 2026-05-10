@@ -3,7 +3,7 @@
 import { DashboardLayout } from "@/components/dashboard/layout";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { StopCircle, Users, CheckCircle2, UserX, AlertCircle } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -19,7 +19,7 @@ interface Record {
   distance_from_teacher: number; marked_at: string | null;
 }
 
-export default function LiveSessionPage() {
+function LiveSessionContent() {
   const { isLoaded, isSignedIn } = useUser();
   const { getToken } = useAuth();
   const router = useRouter();
@@ -203,5 +203,17 @@ export default function LiveSessionPage() {
 
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function LiveSessionPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-[oklch(0.06_0.008_260)] flex items-center justify-center">
+        <div className="w-6 h-6 border border-white/20 border-t-[#eca8d6] rounded-full animate-spin" />
+      </div>
+    }>
+      <LiveSessionContent />
+    </Suspense>
   );
 }

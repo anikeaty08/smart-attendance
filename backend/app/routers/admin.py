@@ -22,7 +22,7 @@ from app.schemas import (
     SubjectOfferingOut, SubjectOut, SubjectUpdate, UpdateSubjectOfferingRequest,
 )
 from app.security import require_first_login_verified, require_role
-from app.utils import build_csv, paginate_query, parse_upload
+from app.utils import PRESENT_EQUIVALENT_STATUSES, build_csv, paginate_query, parse_upload
 
 router = APIRouter(prefix="/admin", tags=["Admin"], dependencies=[Depends(require_first_login_verified)])
 
@@ -50,6 +50,42 @@ def dashboard(current=Depends(require_role("admin")), db: Session = Depends(get_
             )
         ) or 0,
         "total_attendance_records": db.scalar(select(func.count(AttendanceRecord.id))) or 0,
+    }
+
+
+@router.get("/sessions")
+def list_sessions(
+    status: str | None = None,
+    page: int = 1,
+    page_size: int = 100,
+    current=Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    query = (
+        select(AttendanceSession)
+        .join(SubjectOffering, SubjectOffering.id == AttendanceSession.subject_offering_id)
+        .join(Subject, Subject.id == SubjectOffering.subject_id)
+        .join(Faculty, Faculty.id == AttendanceSession.faculty_id)
+    )
+    if status:
+        query = query.where(AttendanceSession.status == status)
+    result = paginate_query(db, query.order_by(AttendanceSession.starts_at.desc()), page, page_size)
+    return {
+        **result,
+        "items": [
+            {
+                "id": s.id,
+                "subject_code": s.subject_offering.subject.subject_code,
+                "subject_name": s.subject_offering.subject.subject_name,
+                "faculty_name": s.faculty.name,
+                "session_type": s.session_type,
+                "status": s.status,
+                "starts_at": s.starts_at,
+                "ends_at": s.ends_at,
+                "radius_meters": s.radius_meters,
+            }
+            for s in result["items"]
+        ],
     }
 
 
@@ -489,6 +525,7 @@ async def import_students(
     file_usns: set = set()
 
     for i, row in enumerate(rows, start=2):
+        row_has_error = False
         row_errors = []
         for field in ["usn", "name", "email"]:
             if not row.get(field):
@@ -503,19 +540,23 @@ async def import_students(
 
         if email in file_emails:
             errors.append({"row": i, "field": "email", "error": "duplicate_in_file"})
+            row_has_error = True
         elif email in existing_emails:
             errors.append({"row": i, "field": "email", "error": "already_exists_in_database"})
+            row_has_error = True
         else:
             file_emails.add(email)
 
         if usn in file_usns:
             errors.append({"row": i, "field": "usn", "error": "duplicate_in_file"})
+            row_has_error = True
         elif usn in existing_usns:
             errors.append({"row": i, "field": "usn", "error": "already_exists_in_database"})
+            row_has_error = True
         else:
             file_usns.add(usn)
 
-        if errors:
+        if row_has_error:
             continue
 
         # Branch: prefer row value, fall back to query param
@@ -535,12 +576,10 @@ async def import_students(
             section=(row.get("section") or section).upper(),
         ))
 
-    if errors:
-        return ImportResponse(imported=0, errors=errors)
-
-    db.add_all(valid)
-    db.commit()
-    return ImportResponse(imported=len(valid), errors=[])
+    if valid:
+        db.add_all(valid)
+        db.commit()
+    return ImportResponse(imported=len(valid), errors=errors)
 
 
 @router.post("/import/faculty", response_model=ImportResponse)
@@ -558,34 +597,39 @@ async def import_faculty(
     default_dept = db.scalar(select(Department).where(Department.code == department_code.upper())) if department_code else None
 
     for i, row in enumerate(rows, start=2):
+        row_has_error = False
         for field in ["name", "email"]:
             if not row.get(field):
                 errors.append({"row": i, "field": field, "error": "required_field_missing"})
-        if errors:
+                row_has_error = True
+        if row_has_error:
             continue
 
         email = row["email"].strip().lower()
         if email in file_emails:
             errors.append({"row": i, "field": "email", "error": "duplicate_in_file"})
+            row_has_error = True
         elif email in existing_emails:
             errors.append({"row": i, "field": "email", "error": "already_exists_in_database"})
+            row_has_error = True
         else:
             file_emails.add(email)
-            row_dept_code = row.get("department_code", "").strip().upper()
-            dept = db.scalar(select(Department).where(Department.code == row_dept_code)) if row_dept_code else default_dept
-            valid.append(Faculty(
-                name=row["name"].strip(),
-                email=email,
-                department_id=dept.id if dept else None,
-                is_hod=str(row.get("is_hod", "")).lower() == "true",
-                is_admin=str(row.get("is_admin", "")).lower() == "true",
-            ))
+        if row_has_error:
+            continue
+        row_dept_code = row.get("department_code", "").strip().upper()
+        dept = db.scalar(select(Department).where(Department.code == row_dept_code)) if row_dept_code else default_dept
+        valid.append(Faculty(
+            name=row["name"].strip(),
+            email=email,
+            department_id=dept.id if dept else None,
+            is_hod=str(row.get("is_hod", "")).lower() == "true",
+            is_admin=str(row.get("is_admin", "")).lower() == "true",
+        ))
 
-    if errors:
-        return ImportResponse(imported=0, errors=errors)
-    db.add_all(valid)
-    db.commit()
-    return ImportResponse(imported=len(valid), errors=[])
+    if valid:
+        db.add_all(valid)
+        db.commit()
+    return ImportResponse(imported=len(valid), errors=errors)
 
 
 @router.post("/import/subjects", response_model=ImportResponse)
@@ -601,34 +645,39 @@ async def import_subjects(
     file_codes: set = set()
 
     for i, row in enumerate(rows, start=2):
+        row_has_error = False
         for field in ["subject_code", "subject_name", "semester"]:
             if not row.get(field):
                 errors.append({"row": i, "field": field, "error": "required_field_missing"})
-        if errors:
+                row_has_error = True
+        if row_has_error:
             continue
 
         code = row["subject_code"].strip().upper()
         if code in file_codes:
             errors.append({"row": i, "field": "subject_code", "error": "duplicate_in_file"})
+            row_has_error = True
         elif code in existing_codes:
             errors.append({"row": i, "field": "subject_code", "error": "already_exists_in_database"})
+            row_has_error = True
         else:
             file_codes.add(code)
-            dept_code = row.get("department_code", "").strip().upper()
-            dept = db.scalar(select(Department).where(Department.code == dept_code)) if dept_code else None
-            valid.append(Subject(
-                subject_code=code,
-                subject_name=row["subject_name"].strip(),
-                credits=int(row.get("credits") or 3),
-                semester=int(row["semester"]),
-                department_id=dept.id if dept else None,
-            ))
+        if row_has_error:
+            continue
+        dept_code = row.get("department_code", "").strip().upper()
+        dept = db.scalar(select(Department).where(Department.code == dept_code)) if dept_code else None
+        valid.append(Subject(
+            subject_code=code,
+            subject_name=row["subject_name"].strip(),
+            credits=int(row.get("credits") or 3),
+            semester=int(row["semester"]),
+            department_id=dept.id if dept else None,
+        ))
 
-    if errors:
-        return ImportResponse(imported=0, errors=errors)
-    db.add_all(valid)
-    db.commit()
-    return ImportResponse(imported=len(valid), errors=[])
+    if valid:
+        db.add_all(valid)
+        db.commit()
+    return ImportResponse(imported=len(valid), errors=errors)
 
 
 @router.post("/import/enrollments", response_model=ImportResponse)
@@ -662,15 +711,14 @@ async def import_enrollments(
             enrollment_type=row.get("enrollment_type") or "core",
         ))
 
-    if errors:
-        return ImportResponse(imported=0, errors=errors)
-    try:
-        db.add_all(valid)
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(400, "duplicate_enrollment_in_batch")
-    return ImportResponse(imported=len(valid), errors=[])
+    if valid:
+        try:
+            db.add_all(valid)
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(400, "duplicate_enrollment_in_batch")
+    return ImportResponse(imported=len(valid), errors=errors)
 
 
 # ---------------------------------------------------------------------------
@@ -796,7 +844,7 @@ def _defaulters_query(db: Session, threshold: float, academic_year: str | None =
         and_(
             AttendanceRecord.session_id == AttendanceSession.id,
             AttendanceRecord.student_id == Student.id,
-            AttendanceRecord.status == "present",
+            AttendanceRecord.status.in_(PRESENT_EQUIVALENT_STATUSES),
         ),
     )
     if academic_year:
@@ -811,8 +859,10 @@ def _defaulters_query(db: Session, threshold: float, academic_year: str | None =
     return [
         {
             "usn": r.usn, "student_name": r.student_name, "section": r.section,
+            "name": r.student_name,
             "subject_code": r.subject_code, "subject_name": r.subject_name,
             "total_sessions": r.total, "present_sessions": r.present,
+            "present": r.present,
             "percentage": round((r.present / r.total) * 100, 2),
         }
         for r in rows

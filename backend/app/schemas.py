@@ -402,9 +402,9 @@ class StartSessionResponse(BaseModel):
 class MarkAttendanceRequest(BaseModel):
     session_id: int
     entered_code: str = Field(min_length=4, max_length=4)
-    student_latitude: float
-    student_longitude: float
-    gps_accuracy_meters: float
+    student_latitude: float = Field(ge=-90, le=90)
+    student_longitude: float = Field(ge=-180, le=180)
+    gps_accuracy_meters: float = Field(gt=0, le=1000)
     device_id: str | None = None
 
 

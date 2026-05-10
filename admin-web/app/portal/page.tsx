@@ -35,8 +35,10 @@ export default function PortalRedirect() {
           return;
         }
         const me = await res.json();
-        if (me.role === "admin" || me.role === "hod") {
+        if (me.role === "admin") {
           router.replace("/admin");
+        } else if (me.role === "hod") {
+          router.replace("/hod");
         } else if (me.role === "faculty") {
           router.replace("/teacher");
         } else {

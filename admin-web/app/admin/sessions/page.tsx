@@ -38,7 +38,10 @@ export default function AdminSessionsPage() {
         const res = await fetch(`${API_BASE}/admin/sessions`, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        if (res.ok) setSessions(await res.json());
+        if (res.ok) {
+          const data = await res.json();
+          setSessions(data.items ?? []);
+        }
       } finally { setLoading(false); }
     })();
   }, [isLoaded, isSignedIn, getToken, router]);

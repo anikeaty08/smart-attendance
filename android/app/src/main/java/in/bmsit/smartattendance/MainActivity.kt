@@ -1,6 +1,14 @@
 package in.bmsit.smartattendance
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import android.location.LocationManager
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.BorderStroke
@@ -20,15 +28,20 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import com.google.android.gms.location.CurrentLocationRequest
+import com.google.android.gms.location.LocationServices
 import in.bmsit.smartattendance.network.ActiveSessionDto
 import in.bmsit.smartattendance.network.ApiClient
 import in.bmsit.smartattendance.network.AttendanceAlertDto
@@ -41,6 +54,10 @@ import in.bmsit.smartattendance.network.StartSessionRequest
 import in.bmsit.smartattendance.network.StartSessionResponse
 import in.bmsit.smartattendance.network.SubjectOfferingDto
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import org.json.JSONObject
+import retrofit2.HttpException
+import kotlin.coroutines.resume
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -53,6 +70,83 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+}
+
+private data class DeviceLocation(val latitude: Double, val longitude: Double, val accuracyMeters: Double)
+
+private fun hasLocationPermission(context: Context): Boolean {
+    return ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+}
+
+private fun isLocationEnabled(context: Context): Boolean {
+    val manager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return false
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        manager.isLocationEnabled
+    } else {
+        manager.isProviderEnabled(LocationManager.GPS_PROVIDER) || manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+    }
+}
+
+private suspend fun fetchCurrentLocation(context: Context): DeviceLocation? = suspendCancellableCoroutine { continuation ->
+    val locationClient = LocationServices.getFusedLocationProviderClient(context)
+    val request = CurrentLocationRequest.Builder()
+        .setDurationMillis(8000)
+        .setMaxUpdateAgeMillis(3000)
+        .build()
+    locationClient
+        .getCurrentLocation(request, null)
+        .addOnSuccessListener { location ->
+            if (!continuation.isActive) return@addOnSuccessListener
+            if (location == null) {
+                continuation.resume(null)
+                return@addOnSuccessListener
+            }
+            continuation.resume(
+                DeviceLocation(
+                    latitude = location.latitude,
+                    longitude = location.longitude,
+                    accuracyMeters = location.accuracy.toDouble(),
+                )
+            )
+        }
+        .addOnFailureListener {
+            if (continuation.isActive) continuation.resume(null)
+        }
+}
+
+private fun mapAttendanceError(error: Throwable): String {
+    val detail = if (error is HttpException) {
+        parseErrorDetail(error.response()?.errorBody()?.string())
+    } else {
+        null
+    }
+    return when (detail) {
+        "outside_radius" -> "You are outside the allowed classroom radius. Move closer and retry."
+        "invalid_code" -> "The attendance code is incorrect."
+        "poor_gps_accuracy" -> "GPS accuracy is low. Move to open sky and retry."
+        "attendance_locked_for_session" -> "Too many failed attempts. Attendance is locked for this session."
+        "not_enrolled" -> "You are not enrolled for this subject."
+        "session_expired_or_inactive" -> "This session is no longer active."
+        "already_marked" -> "Attendance is already marked for this session."
+        else -> error.message ?: "Attendance failed"
+    }
+}
+
+private fun parseErrorDetail(raw: String?): String? {
+    if (raw.isNullOrBlank()) return null
+    return try {
+        val json = JSONObject(raw)
+        when (val detail = json.opt("detail")) {
+            is String -> detail
+            else -> null
+        }
+    } catch (_: Exception) {
+        null
+    }
+}
+
+private fun buildDeviceId(context: Context): String {
+    return Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "android-device"
 }
 
 @Composable
@@ -176,13 +270,32 @@ fun FirstLoginVerificationPanel(token: String, email: String, onVerified: () -> 
 @Composable
 fun StudentDashboard(token: String) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var subjects by remember { mutableStateOf<List<SubjectOfferingDto>>(emptyList()) }
     var sessions by remember { mutableStateOf<List<ActiveSessionDto>>(emptyList()) }
     var summaries by remember { mutableStateOf<List<AttendanceSummaryDto>>(emptyList()) }
     var alerts by remember { mutableStateOf<List<AttendanceAlertDto>>(emptyList()) }
     var code by remember { mutableStateOf("") }
-    var sessionId by remember { mutableStateOf("") }
+    var selectedSessionId by remember { mutableStateOf<Int?>(null) }
     var status by remember { mutableStateOf("") }
+    var submitting by remember { mutableStateOf(false) }
+    var locationPermissionGranted by remember { mutableStateOf(hasLocationPermission(context)) }
+
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        locationPermissionGranted = granted
+        if (!granted) {
+            status = "Location permission denied. Enable location permission to mark attendance."
+        }
+    }
+
+    LaunchedEffect(sessions) {
+        if (sessions.none { it.id == selectedSessionId }) {
+            selectedSessionId = sessions.firstOrNull()?.id
+        }
+    }
+
     fun refresh() {
         scope.launch {
             try {
@@ -222,31 +335,65 @@ fun StudentDashboard(token: String) {
         }
         ThinCard {
             Text("Active sessions", fontWeight = FontWeight.SemiBold)
-            OutlinedTextField(value = sessionId, onValueChange = { sessionId = it }, label = { Text("Session ID") })
+            if (sessions.isEmpty()) {
+                Text("No active sessions. Tap refresh.", color = Color(0xFF666666))
+            } else {
+                sessions.forEach { session ->
+                    val selected = selectedSessionId == session.id
+                    OutlinedButton(onClick = { selectedSessionId = session.id }) {
+                        val marker = if (selected) "[Selected] " else ""
+                        Text("${marker}#${session.id} ${session.subject_code} / ${session.session_type} / ${session.radius_meters}m")
+                    }
+                }
+            }
             OutlinedTextField(value = code, onValueChange = { code = it.take(4) }, label = { Text("4-digit code") })
             Button(onClick = {
+                if (!locationPermissionGranted) {
+                    locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                    return@Button
+                }
+                if (!isLocationEnabled(context)) {
+                    status = "Location is turned off. Enable GPS/location services and retry."
+                    return@Button
+                }
+                val sessionId = selectedSessionId
+                if (sessionId == null) {
+                    status = "Select an active session first."
+                    return@Button
+                }
+                if (code.length != 4) {
+                    status = "Enter the 4-digit attendance code."
+                    return@Button
+                }
                 scope.launch {
                     try {
-                        val id = sessionId.toInt()
+                        submitting = true
+                        status = "Fetching your current location..."
+                        val location = fetchCurrentLocation(context)
+                        if (location == null) {
+                            status = "Could not get accurate location. Move to open sky and retry."
+                            return@launch
+                        }
                         val response = ApiClient.service.markAttendance(
                             "Bearer $token",
                             in.bmsit.smartattendance.network.MarkAttendanceRequest(
-                                id,
+                                sessionId,
                                 code,
-                                12.9716001,
-                                77.5946001,
-                                8.0,
-                                "android-device",
+                                location.latitude,
+                                location.longitude,
+                                location.accuracyMeters,
+                                buildDeviceId(context),
                             ),
                         )
                         status = "Marked ${response.status} at ${response.distance_from_teacher}m"
                         refresh()
                     } catch (error: Exception) {
-                        status = error.message ?: "Attendance failed"
+                        status = mapAttendanceError(error)
+                    } finally {
+                        submitting = false
                     }
                 }
-            }) { Text("Mark Attendance") }
-            sessions.forEach { Text("#${it.id} ${it.subject_code} / ${it.session_type}") }
+            }, enabled = !submitting) { Text(if (submitting) "Marking..." else "Mark Attendance") }
         }
         DashboardList("My enrolled subjects", subjects.map { "${it.subject_code} / ${it.subject_name} / ${it.faculty_name}" })
         DashboardList("Attendance summary", summaries.map { "${it.subject_code}: ${it.present_sessions}/${it.total_sessions} (${it.percentage}%)" })

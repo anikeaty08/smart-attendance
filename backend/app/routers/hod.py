@@ -39,7 +39,7 @@ from app.schemas import (
 )
 from app.security import require_first_login_verified, require_role
 from app.time_utils import utcnow
-from app.utils import build_csv, parse_upload
+from app.utils import PRESENT_EQUIVALENT_STATUSES, build_csv, parse_upload
 
 router = APIRouter(prefix="/hod", tags=["HOD"], dependencies=[Depends(require_first_login_verified)])
 
@@ -562,7 +562,7 @@ def hod_report(
         and_(
             AttendanceRecord.session_id == AttendanceSession.id,
             AttendanceRecord.student_id == Student.id,
-            AttendanceRecord.status == "present",
+            AttendanceRecord.status.in_(PRESENT_EQUIVALENT_STATUSES),
         ),
     ).where(SubjectOffering.branch_id == dept_id)
 
@@ -625,7 +625,7 @@ def hod_defaulters(
         and_(
             AttendanceRecord.session_id == AttendanceSession.id,
             AttendanceRecord.student_id == Student.id,
-            AttendanceRecord.status == "present",
+            AttendanceRecord.status.in_(PRESENT_EQUIVALENT_STATUSES),
         ),
     ).where(SubjectOffering.branch_id == dept_id)
 

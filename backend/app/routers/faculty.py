@@ -29,7 +29,7 @@ from app.schemas import (
 )
 from app.security import require_first_login_verified, require_role
 from app.time_utils import as_utc, db_utc, utcnow
-from app.utils import build_csv, generate_session_code
+from app.utils import PRESENT_EQUIVALENT_STATUSES, build_csv, generate_session_code
 from app.security import hash_code
 
 router = APIRouter(prefix="/faculty", tags=["Faculty"], dependencies=[Depends(require_first_login_verified)])
@@ -208,6 +208,15 @@ def correct_attendance(
     if not student:
         raise HTTPException(status_code=404, detail="student_not_found")
 
+    enrolled = db.scalar(
+        select(StudentEnrollment.id).where(
+            StudentEnrollment.student_id == student_id,
+            StudentEnrollment.subject_offering_id == session.subject_offering_id,
+        )
+    )
+    if not enrolled:
+        raise HTTPException(status_code=403, detail="not_enrolled_in_offering")
+
     record = db.scalar(
         select(AttendanceRecord).where(
             AttendanceRecord.session_id == session_id,
@@ -293,7 +302,7 @@ def faculty_report(current=Depends(require_role("faculty", "hod")), db: Session 
             present_count = db.scalar(
                 select(func.count(AttendanceRecord.id)).where(
                     AttendanceRecord.session_id.in_(sessions),
-                    AttendanceRecord.status == "present",
+                    AttendanceRecord.status.in_(PRESENT_EQUIVALENT_STATUSES),
                 )
             ) or 0
         possible_attendance = total * enrolled_count
@@ -344,7 +353,7 @@ def export_attendance(
                 select(sqlfunc.count(AttendanceRecord.id)).where(
                     AttendanceRecord.student_id == student.id,
                     AttendanceRecord.session_id.in_(session_ids),
-                    AttendanceRecord.status == "present",
+                    AttendanceRecord.status.in_(PRESENT_EQUIVALENT_STATUSES),
                 )
             ) or 0
         total = len(session_ids)
